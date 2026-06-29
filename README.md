@@ -109,6 +109,22 @@ Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.t
 
 ---
 
+## 💳 Online payments (Razorpay)
+
+Parent fee payments are processed through **Razorpay**. Set these env vars to go live;
+leave them blank and the pay flow falls back to a simulated demo payment.
+
+| Variable | Scope | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Client + server | Public Key ID, opens Checkout |
+| `RAZORPAY_KEY_SECRET` | **Server only** | Creates orders & verifies signatures — never expose |
+| `RAZORPAY_WEBHOOK_SECRET` | Server only | Optional, only if you add webhooks |
+
+Flow: the client calls `POST /api/razorpay/order` (server creates the order with the
+secret), Razorpay Checkout opens in the browser, and on success the client calls
+`POST /api/razorpay/verify` which validates the `order_id|payment_id` HMAC‑SHA256
+signature before the payment is recorded. Amounts are sent to Razorpay in paise.
+
 ## ▲ Deploy to Vercel
 
 1. Push this repo to GitHub and **Import** it in Vercel (framework auto‑detected as Next.js).

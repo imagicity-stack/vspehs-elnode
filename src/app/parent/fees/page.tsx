@@ -4,8 +4,13 @@ import { useState } from "react";
 import { useChild, ChildSwitcher } from "../child-context";
 import { useData } from "@/lib/store";
 import { Card, CardHeader, Badge, Stat, EmptyState, Table, Th, Td, Button } from "@/components/ui";
-import { inr, formatDate } from "@/lib/utils";
-import { Wallet, Receipt, CheckCircle2, IndianRupee, X } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { inr, formatDate, fullName } from "@/lib/utils";
+import {
+  isRazorpayConfigured, RAZORPAY_KEY_ID, loadRazorpayScript,
+  createRazorpayOrder, verifyRazorpayPayment,
+} from "@/lib/razorpay";
+import { Wallet, Receipt, CheckCircle2, IndianRupee, X, ShieldCheck, Loader2 } from "lucide-react";
 import { Invoice, InvoiceStatus, PaymentMethod } from "@/lib/types";
 
 const statusTone: Record<InvoiceStatus, "green" | "amber" | "red" | "sky"> = {
@@ -109,19 +114,78 @@ export default function ParentFees() {
 }
 
 function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
-  const { recordPayment } = useData();
+  const { recordPayment, students } = useData();
+  const { user } = useAuth();
+  const student = students.find((s) => s.id === invoice.studentId);
   const remaining = invoice.total - invoice.paid;
   const [amount, setAmount] = useState(remaining);
   const [method, setMethod] = useState<PaymentMethod>("upi");
   const [done, setDone] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
 
-  const pay = () => {
+  // Simulated demo payment (no Razorpay keys configured).
+  const payDemo = () => {
     recordPayment({
       invoiceId: invoice.id, studentId: invoice.studentId, amount,
       method, collectedBy: "online", reference: `${method.toUpperCase()}/${Math.floor(Math.random() * 9000 + 1000)}`,
     });
     setDone(true);
   };
+
+  // Live Razorpay checkout: create order → open checkout → verify signature → record.
+  const payRazorpay = async () => {
+    setError("");
+    setProcessing(true);
+    try {
+      const order = await createRazorpayOrder({
+        amount, invoiceId: invoice.id, studentId: invoice.studentId,
+      });
+      const ok = await loadRazorpayScript();
+      if (!ok) throw new Error("Could not load the payment gateway. Check your connection.");
+
+      const rzp = new (window as any).Razorpay({
+        key: order.keyId || RAZORPAY_KEY_ID,
+        order_id: order.orderId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "El-Node Pre-Primary",
+        description: `${invoice.invoiceNo} · ${invoice.period}`,
+        prefill: {
+          name: student ? fullName(student) : user?.displayName,
+          contact: student?.primaryContact,
+          email: student?.parentEmail || user?.email,
+        },
+        notes: { invoiceId: invoice.id, admissionNo: student?.admissionNo },
+        theme: { color: "#1d40f5" },
+        handler: async (resp: any) => {
+          const verified = await verifyRazorpayPayment(resp);
+          if (!verified) {
+            setError("Payment could not be verified. If money was debited it will be refunded.");
+            setProcessing(false);
+            return;
+          }
+          recordPayment({
+            invoiceId: invoice.id, studentId: invoice.studentId, amount,
+            method: "upi", collectedBy: "online", reference: resp.razorpay_payment_id,
+          });
+          setProcessing(false);
+          setDone(true);
+        },
+        modal: { ondismiss: () => setProcessing(false) },
+      });
+      rzp.on("payment.failed", (r: any) => {
+        setError(r?.error?.description || "Payment failed. Please try again.");
+        setProcessing(false);
+      });
+      rzp.open();
+    } catch (e: any) {
+      setError(e.message || "Could not start payment.");
+      setProcessing(false);
+    }
+  };
+
+  const pay = () => (isRazorpayConfigured ? payRazorpay() : payDemo());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -152,15 +216,24 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
               <label className="label">Amount</label>
               <input type="number" value={amount} max={remaining} min={1} onChange={(e) => setAmount(Math.min(remaining, Math.max(0, Number(e.target.value))))} className="input" />
             </div>
-            <div className="mt-3">
-              <label className="label">Method</label>
-              <div className="grid grid-cols-4 gap-2">
-                {(["upi", "card", "netbanking", "cash"] as PaymentMethod[]).map((m) => (
-                  <button key={m} onClick={() => setMethod(m)} className={`rounded-xl border px-2 py-2 text-xs font-semibold uppercase ${method === m ? "border-brand-400 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500"}`}>{m}</button>
-                ))}
+            {!isRazorpayConfigured && (
+              <div className="mt-3">
+                <label className="label">Method</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(["upi", "card", "netbanking", "cash"] as PaymentMethod[]).map((m) => (
+                    <button key={m} onClick={() => setMethod(m)} className={`rounded-xl border px-2 py-2 text-xs font-semibold uppercase ${method === m ? "border-brand-400 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-500"}`}>{m}</button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <button onClick={pay} disabled={amount <= 0} className="btn-primary mt-5 w-full py-3">Pay {inr(amount)}</button>
+            )}
+            {error && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}
+            <button onClick={pay} disabled={amount <= 0 || processing} className="btn-primary mt-5 w-full py-3">
+              {processing ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Pay {inr(amount)}</>}
+            </button>
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {isRazorpayConfigured ? "Secured by Razorpay" : "Demo mode — no real charge"}
+            </p>
           </>
         )}
       </div>
