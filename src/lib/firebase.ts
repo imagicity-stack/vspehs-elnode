@@ -43,6 +43,21 @@ export function admissionNoToEmail(admissionNo: string): string {
   return `${admissionNo}@${PARENT_EMAIL_DOMAIN}`;
 }
 
+/**
+ * Emails allowed to sign in as Super Admin via Google. Comma-separated.
+ * Defaults to the founding administrator.
+ */
+export const SUPERADMIN_EMAILS = (
+  process.env.NEXT_PUBLIC_SUPERADMIN_EMAILS || "dewesh@eldenheights.org"
+)
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+export function isSuperAdminEmail(email?: string | null): boolean {
+  return !!email && SUPERADMIN_EMAILS.includes(email.toLowerCase());
+}
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;

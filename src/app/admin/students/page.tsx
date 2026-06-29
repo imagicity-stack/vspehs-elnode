@@ -2,10 +2,14 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
+import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
 import { fullName, ageFromDob, formatDate } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
-import { Users, Plus, Search, X, Droplet, AlertTriangle } from "lucide-react";
+import {
+  Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
+  Loader2, Copy, ShieldCheck,
+} from "lucide-react";
 
 export default function AdminStudents() {
   const data = useData();
@@ -96,25 +100,88 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     fatherName: "", motherName: "", primaryContact: "", allergies: "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<null | {
+    admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
+  }>(null);
 
-  const save = () => {
+  const save = async () => {
     if (!form.firstName || !/^\d{7}$/.test(form.admissionNo)) return;
+    setBusy(true);
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
-    data.addStudent({
-      admissionNo: form.admissionNo, firstName: form.firstName, lastName: form.lastName,
+    // Auto-generated initial PIN the parent uses with their admission number.
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const id = `st-${form.admissionNo}`;
+    const student: Student = {
+      id, admissionNo: form.admissionNo, firstName: form.firstName, lastName: form.lastName,
       gender: form.gender, dob: form.dob || "2022-01-01", bloodGroup: form.bloodGroup,
       classId: form.classId, rollNo,
       allergies: form.allergies ? form.allergies.split(",").map((a) => a.trim()).filter(Boolean) : [],
       emergencyContacts: [{ name: form.fatherName || "Parent", relation: "Father", phone: form.primaryContact }],
       pickupPersons: [{ name: form.fatherName || "Parent", relation: "Father", phone: form.primaryContact, authorised: true }],
       siblings: [], address: "—", fatherName: form.fatherName, motherName: form.motherName,
-      primaryContact: form.primaryContact, admissionDate: new Date().toISOString().slice(0, 10),
-      transportRoute: "Self", status: "active",
-    });
-    onClose();
+      primaryContact: form.primaryContact, parentEmail: undefined,
+      admissionDate: new Date().toISOString().slice(0, 10), transportRoute: "Self", status: "active",
+    };
+
+    // Reflect immediately in the local directory.
+    const { id: _omit, ...withoutId } = student;
+    data.addStudent(withoutId);
+
+    const email = admissionNoToEmail(form.admissionNo);
+    let provision: "demo" | "created" | "failed" = "demo";
+
+    // When Firebase is connected, auto-provision the parent's Auth login.
+    if (isFirebaseConfigured && auth?.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        const res = await fetch("/api/students/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ student, pin }),
+        });
+        provision = res.ok ? "created" : "failed";
+      } catch {
+        provision = "failed";
+      }
+    }
+
+    setBusy(false);
+    setCreated({ admissionNo: form.admissionNo, pin, email, provision });
   };
 
   const valid = form.firstName && /^\d{7}$/.test(form.admissionNo);
+
+  if (created) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+        <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+          <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+          <div className="text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></div>
+            <h3 className="text-lg font-bold text-slate-900">Student added</h3>
+            <p className="mt-1 text-sm text-slate-500">Parent login has been generated.</p>
+          </div>
+          <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <CredRow icon={<KeyRound className="h-4 w-4" />} label="Admission no. (login)" value={created.admissionNo} />
+            <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="Temporary PIN" value={created.pin} />
+            <CredRow label="Parent email (internal)" value={created.email} />
+          </div>
+          <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+            created.provision === "created" ? "bg-emerald-50 text-emerald-700"
+            : created.provision === "failed" ? "bg-rose-50 text-rose-700"
+            : "bg-amber-50 text-amber-700"}`}>
+            {created.provision === "created" && "✓ Firebase Auth account created — the parent can sign in now."}
+            {created.provision === "failed" && "Saved locally, but the Firebase account could not be created. Check Admin SDK env vars."}
+            {created.provision === "demo" && "Demo mode — the Firebase Auth account is created automatically once Firebase is connected."}
+          </div>
+          <p className="mt-3 text-xs text-slate-400">Share the admission number and PIN with the parent. They can change the PIN after first sign-in.</p>
+          <button onClick={onClose} className="btn-primary mt-4 w-full py-3">Done</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -122,7 +189,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
       <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-soft">
         <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         <h3 className="text-lg font-bold text-slate-900">Add Student</h3>
-        <p className="text-sm text-slate-500">The 7-digit admission number becomes the parent login.</p>
+        <p className="text-sm text-slate-500">The 7-digit admission number becomes the parent login — a Firebase Auth account is generated automatically.</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name"><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" /></Field>
           <Field label="Last name"><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" /></Field>
@@ -150,8 +217,28 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             <Field label="Allergies (comma separated)"><input value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="Peanuts, Dairy" className="input" /></Field>
           </div>
         </div>
-        <button onClick={save} disabled={!valid} className="btn-primary mt-5 w-full py-3">Add student</button>
+        <button onClick={save} disabled={!valid || busy} className="btn-primary mt-5 w-full py-3">
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating login…</> : <>Add student & generate login</>}
+        </button>
       </div>
+    </div>
+  );
+}
+
+function CredRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex items-center gap-1.5 text-xs text-slate-500">{icon}{label}</span>
+      <button onClick={copy} className="inline-flex items-center gap-1.5 font-mono text-sm font-semibold text-slate-800 hover:text-brand-600">
+        {value} {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 text-slate-300" />}
+      </button>
     </div>
   );
 }

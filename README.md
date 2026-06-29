@@ -55,13 +55,30 @@ platform — with four dedicated, role‑based portals.
 
 ## 🔐 Authentication model
 
-| Who      | Login               | Mechanism                                                             |
-|----------|---------------------|----------------------------------------------------------------------|
-| Parents  | 7‑digit admission # | Mapped internally to `<number>@parents.el-node.app` for Firebase Auth |
-| Staff    | Work email          | Firebase email/password; role resolved from the staff directory      |
+| Who         | Login               | Mechanism                                                             |
+|-------------|---------------------|----------------------------------------------------------------------|
+| Parents     | 7‑digit admission # | Mapped internally to `<number>@parents.el-node.app` for Firebase Auth |
+| Teacher/Acc | Work email          | Firebase email/password; role resolved from the staff directory      |
+| Super Admin | **Google sign‑in**  | `signInWithPopup`, restricted to an allowlist (`NEXT_PUBLIC_SUPERADMIN_EMAILS`, default `dewesh@eldenheights.org`) |
 
 Roles (`parent`, `teacher`, `accountant`, `superadmin`) drive routing and the Firestore
 security rules. Helpers use the teacher portal.
+
+### Super Admin & student onboarding
+
+The **Super Admin signs in with Google** (allowlisted email only) and is the role that
+onboards students. When a student is added from **Admin → Students → Add Student**:
+
+1. The student record is created, and
+2. the parent's **Firebase Auth login is auto‑provisioned** server‑side via the Firebase
+   Admin SDK — email `<admissionNo>@parents.el-node.app`, with a generated 6‑digit PIN
+   (shown once to the admin to share). A `role: "parent"` custom claim and the
+   `students/` + `appUsers/` documents are written too.
+
+This runs in `POST /api/students/create`, which **verifies the caller's ID token and the
+super‑admin allowlist** before doing anything. It requires the Firebase Admin SDK env vars
+(below). Without them, the student is still added locally and the UI explains that the
+Auth account is created automatically once Firebase is connected.
 
 ---
 
@@ -100,9 +117,15 @@ Demo changes (attendance, payments, posts) persist in `localStorage`; reset from
 4. Seed Firestore with the sample dataset by calling `seedFirestore()` from
    `src/lib/firestore.ts` (e.g. a one‑off protected admin action).
 5. Create Auth users:
-   - **Parents:** email `<admissionNo>@parents.el-node.app`, with an `appUsers/{uid}` doc
+   - **Super Admin:** enable **Google** as a sign‑in provider; the allowlisted email
+     (`NEXT_PUBLIC_SUPERADMIN_EMAILS`) is granted admin access on sign‑in.
+   - **Parents:** created automatically when the admin adds a student (see above). For
+     manual setup: email `<admissionNo>@parents.el-node.app` + an `appUsers/{uid}` doc
      `{ role: "parent", studentIds: [...] }`.
    - **Staff:** their work email, with `appUsers/{uid}` `{ role, staffId }`.
+6. For student auto‑provisioning, add a **Service Account** key and set the Admin SDK env
+   vars: `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+   (server‑only — no `NEXT_PUBLIC_` prefix).
 
 When the env vars are present El‑Node **automatically switches** from demo data to Firebase
 Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.ts`).

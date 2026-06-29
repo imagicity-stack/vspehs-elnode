@@ -14,9 +14,12 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import {
-  signInWithEmailAndPassword, signOut, onAuthStateChanged, type User,
+  signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
+  onAuthStateChanged, type User,
 } from "firebase/auth";
-import { auth, isDemoMode, admissionNoToEmail } from "./firebase";
+import {
+  auth, isDemoMode, admissionNoToEmail, isSuperAdminEmail, SUPERADMIN_EMAILS,
+} from "./firebase";
 import { AppUser, Role } from "./types";
 import * as seed from "./mockData";
 
@@ -27,6 +30,7 @@ interface AuthContextValue {
   loading: boolean;
   loginParent: (admissionNo: string, pin: string) => Promise<AppUser>;
   loginStaff: (email: string, password: string) => Promise<AppUser>;
+  loginWithGoogle: () => Promise<AppUser>;
   demoLoginAs: (role: Role) => AppUser;
   logout: () => Promise<void>;
 }
@@ -63,6 +67,17 @@ function staffFromEmail(email: string): AppUser | null {
     email: member.email,
     staffId: member.id,
     photoUrl: member.photoUrl,
+  };
+}
+
+function superAdminAppUser(email: string, name?: string, photo?: string): AppUser {
+  return {
+    uid: `superadmin-${email}`,
+    role: "superadmin",
+    displayName: name || email.split("@")[0] || "Super Admin",
+    email,
+    staffId: "s-admin", // map to the directory principal for authored content
+    photoUrl: photo,
   };
 }
 
@@ -144,6 +159,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return resolved;
   };
 
+  const loginWithGoogle = async (): Promise<AppUser> => {
+    if (isDemoMode) {
+      // No Firebase in demo — sign in as the allowlisted super admin.
+      const email = SUPERADMIN_EMAILS[0] || "dewesh@eldenheights.org";
+      const u = superAdminAppUser(email, "Dewesh");
+      persist(u);
+      return u;
+    }
+    if (!auth) throw new Error("Auth unavailable.");
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    const cred = await signInWithPopup(auth, provider);
+    const email = cred.user.email;
+    if (!isSuperAdminEmail(email)) {
+      await signOut(auth);
+      throw new Error("This Google account is not authorised for admin access.");
+    }
+    // onAuthStateChanged resolves the AppUser too.
+    return superAdminAppUser(email!, cred.user.displayName ?? undefined, cred.user.photoURL ?? undefined);
+  };
+
   const demoLoginAs = (role: Role): AppUser => {
     let u: AppUser | null = null;
     if (role === "parent") u = parentFromAdmissionNo("2025001");
@@ -161,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginParent, loginStaff, demoLoginAs, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginParent, loginStaff, loginWithGoogle, demoLoginAs, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -171,6 +207,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 // `appUsers/{uid}` document. Here we approximate from the seeded directory.
 async function resolveFirebaseUser(fbUser: User): Promise<AppUser> {
   const email = fbUser.email ?? "";
+  if (isSuperAdminEmail(email)) {
+    return superAdminAppUser(email, fbUser.displayName ?? undefined, fbUser.photoURL ?? undefined);
+  }
   if (email.includes("@parents.")) {
     const admissionNo = email.split("@")[0];
     return parentFromAdmissionNo(admissionNo) ?? {
