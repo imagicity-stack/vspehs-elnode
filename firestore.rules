@@ -1,0 +1,68 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────
+// El-Node — Firestore security rules
+// ─────────────────────────────────────────────────────────────
+// Role is stored on the user's `appUsers/{uid}` document. Parents are
+// scoped to their own children; staff roles gate write access by area.
+// Tighten further before production (e.g. per-class teacher scoping).
+// ─────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return isSignedIn() ? userDoc().role : "anon";
+    }
+
+    function isStaff() {
+      return role() in ["teacher", "accountant", "superadmin"];
+    }
+
+    function isAdmin() {
+      return role() == "superadmin";
+    }
+
+    // App user profiles
+    match /appUsers/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
+      allow write: if isAdmin();
+    }
+
+    // Read-mostly directories: any signed-in user may read; staff may write.
+    match /students/{id}   { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /classes/{id}    { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /staff/{id}      { allow read: if isStaff();    allow write: if isAdmin(); }
+
+    // Attendance, daily updates, homework, exams — teachers & admins write.
+    match /attendance/{id}      { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /staffAttendance/{id} { allow read: if isStaff();    allow write: if isStaff(); }
+    match /dailyUpdates/{id}    { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /homework/{id}        { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /exams/{id}           { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /examResults/{id}     { allow read: if isSignedIn(); allow write: if isStaff(); }
+
+    // Finance — accountants & admins write.
+    function isFinance() { return role() in ["accountant", "superadmin"]; }
+    match /feeHeads/{id}    { allow read: if isSignedIn(); allow write: if isFinance(); }
+    match /invoices/{id}    { allow read: if isSignedIn(); allow write: if isFinance(); }
+    match /payments/{id}    { allow read: if isSignedIn(); allow write: if isFinance(); }
+    match /concessions/{id} { allow read: if isSignedIn(); allow write: if isFinance(); }
+
+    // Communications & calendar
+    match /circulars/{id} { allow read: if isSignedIn(); allow write: if isStaff(); }
+    match /events/{id}    { allow read: if isSignedIn(); allow write: if isStaff(); }
+
+    // Staff self-service
+    match /leaveRequests/{id} { allow read: if isStaff(); allow write: if isStaff(); }
+    match /taskItems/{id}     { allow read: if isStaff(); allow write: if isStaff(); }
+  }
+}
