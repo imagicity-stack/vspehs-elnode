@@ -32,6 +32,13 @@ export const isDemoMode = !isFirebaseConfigured;
 export const PARENT_EMAIL_DOMAIN =
   process.env.NEXT_PUBLIC_PARENT_EMAIL_DOMAIN || "parents.el-node.app";
 
+/**
+ * Firestore database id. Firebase projects can host multiple named databases;
+ * leave unset (or "(default)") to use the project's default database.
+ */
+export const FIREBASE_DATABASE_ID =
+  process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID || "(default)";
+
 export function admissionNoToEmail(admissionNo: string): string {
   return `${admissionNo}@${PARENT_EMAIL_DOMAIN}`;
 }
@@ -43,7 +50,10 @@ let db: Firestore | null = null;
 if (isFirebaseConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  // Use the named database when provided, otherwise the project default.
+  db = FIREBASE_DATABASE_ID && FIREBASE_DATABASE_ID !== "(default)"
+    ? getFirestore(app, FIREBASE_DATABASE_ID)
+    : getFirestore(app);
 }
 
 export { app, auth, db };

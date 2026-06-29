@@ -94,6 +94,8 @@ Demo changes (attendance, payments, posts) persist in `localStorage`; reset from
 
 1. Create a Firebase project; enable **Authentication → Email/Password** and **Firestore**.
 2. Copy `.env.example` → `.env.local` and fill in the `NEXT_PUBLIC_FIREBASE_*` values.
+   Optionally set `NEXT_PUBLIC_FIREBASE_DATABASE_ID` to target a **named** Firestore
+   database; leave it blank to use the project's default database.
 3. Deploy the security rules: `firebase deploy --only firestore:rules` (see `firestore.rules`).
 4. Seed Firestore with the sample dataset by calling `seedFirestore()` from
    `src/lib/firestore.ts` (e.g. a one‑off protected admin action).
