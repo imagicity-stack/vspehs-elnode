@@ -109,6 +109,22 @@ Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.t
 
 ---
 
+## 📱 Progressive Web App (PWA)
+
+El-Node is an installable PWA — parents and staff can add it to their home screen and
+it works offline for pages they've already opened.
+
+- **Manifest:** `src/app/manifest.ts` → `/manifest.webmanifest` (name, theme, icons, shortcuts)
+- **Icons:** `public/icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`
+- **Service worker:** `public/sw.js` — network-first for navigations (with an `offline.html`
+  fallback) and stale-while-revalidate for static assets. APIs and cross-origin requests
+  (e.g. Razorpay) are never cached.
+- **Registration + install prompt:** `src/components/PWARegister.tsx` (registers the SW in
+  production and shows an "Install app" banner on `beforeinstallprompt`).
+
+> The service worker only registers in a production build (`npm run build && npm run start`,
+> or on Vercel) — not in `npm run dev`.
+
 ## 💳 Online payments (Razorpay)
 
 Parent fee payments are processed through **Razorpay**. Set these env vars to go live;
