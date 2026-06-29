@@ -9,10 +9,10 @@ import { AuthLayout } from "@/components/AuthLayout";
 import { Role } from "@/lib/types";
 import { ArrowRight, Mail, Lock, GraduationCap, Calculator, ShieldCheck, Users } from "lucide-react";
 
-const demoAccounts: { role: Role; email: string; label: string; icon: any }[] = [
-  { role: "teacher", email: "anita@elnode.school", label: "Teacher", icon: GraduationCap },
-  { role: "accountant", email: "accounts@elnode.school", label: "Accountant", icon: Calculator },
-  { role: "superadmin", email: "admin@elnode.school", label: "Super Admin", icon: ShieldCheck },
+const demoAccounts: { role: Role; label: string; icon: any }[] = [
+  { role: "teacher", label: "Teacher", icon: GraduationCap },
+  { role: "accountant", label: "Accountant", icon: Calculator },
+  { role: "superadmin", label: "Super Admin", icon: ShieldCheck },
 ];
 
 export default function StaffLogin() {
@@ -98,16 +98,18 @@ export default function StaffLogin() {
       </form>
 
       {isDemoMode && (
-        <div className="mt-6">
-          <p className="mb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
-            One-click demo
+        <div className="mt-6 rounded-xl border border-dashed border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-700">Firebase not connected</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Staff login requires Firebase. Configure your Firebase credentials to enable live authentication.
+            Use the buttons below to preview portals with empty data.
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-3 gap-2">
             {demoAccounts.map((a) => (
               <button
                 key={a.role}
                 onClick={() => quick(a.role)}
-                className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 p-3 text-center transition hover:border-brand-300 hover:bg-brand-50"
+                className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-3 text-center transition hover:border-brand-300 hover:bg-brand-50"
               >
                 <a.icon className="h-5 w-5 text-brand-600" />
                 <span className="text-xs font-semibold text-slate-700">{a.label}</span>

@@ -69,11 +69,10 @@ export default function ParentLogin() {
       {isDemoMode && (
         <div className="mt-5 rounded-xl border border-dashed border-brand-200 bg-brand-50/60 p-4">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700">
-            <Sparkles className="h-4 w-4" /> Demo numbers
+            <Sparkles className="h-4 w-4" /> Demo mode
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Try <button className="font-semibold text-brand-700 underline" onClick={() => setAdmissionNo("2025001")}>2025001</button> (Aarav, Playgroup) or{" "}
-            <button className="font-semibold text-brand-700 underline" onClick={() => setAdmissionNo("2025006")}>2025006</button> (Saanvi, UKG).
+            Firebase is not connected. Enter any 7-digit number to preview the parent portal with empty data.
           </p>
         </div>
       )}

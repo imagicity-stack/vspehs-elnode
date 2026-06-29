@@ -19,11 +19,18 @@ import {
 } from "firebase/auth";
 import {
   auth, isDemoMode, admissionNoToEmail, isSuperAdminEmail, SUPERADMIN_EMAILS,
+  PARENT_EMAIL_DOMAIN,
 } from "./firebase";
 import { AppUser, Role } from "./types";
-import * as seed from "./mockData";
 
-const SESSION_KEY = "elnode.session.v1";
+const SESSION_KEY = "elnode.session.v2";
+
+// Minimal demo accounts used for one-click login when Firebase is not configured.
+const DEMO_ROLES: Record<string, Role> = {
+  "teacher": "teacher",
+  "accountant": "accountant",
+  "superadmin": "superadmin",
+};
 
 interface AuthContextValue {
   user: AppUser | null;
@@ -37,46 +44,12 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ── Demo resolvers ───────────────────────────────────────────
-function parentFromAdmissionNo(admissionNo: string): AppUser | null {
-  const student = seed.students.find((s) => s.admissionNo === admissionNo.trim());
-  if (!student) return null;
-  // link siblings that study in the same school
-  const linked = [student.id, ...student.siblings.map((sb) => sb.studentId).filter(Boolean) as string[]];
-  return {
-    uid: `parent-${student.id}`,
-    role: "parent",
-    displayName: student.fatherName || student.motherName || "Parent",
-    studentIds: Array.from(new Set(linked)),
-    admissionNo: student.admissionNo,
-    email: student.parentEmail,
-  };
-}
-
-function staffFromEmail(email: string): AppUser | null {
-  const member = seed.staff.find((s) => s.email.toLowerCase() === email.trim().toLowerCase());
-  if (!member) return null;
-  const role: Role =
-    member.role === "accountant" ? "accountant"
-    : member.role === "superadmin" ? "superadmin"
-    : "teacher"; // teachers + helpers use the teacher portal
-  return {
-    uid: `staff-${member.id}`,
-    role,
-    displayName: member.name,
-    email: member.email,
-    staffId: member.id,
-    photoUrl: member.photoUrl,
-  };
-}
-
 function superAdminAppUser(email: string, name?: string, photo?: string): AppUser {
   return {
     uid: `superadmin-${email}`,
     role: "superadmin",
     displayName: name || email.split("@")[0] || "Super Admin",
     email,
-    staffId: "s-admin", // map to the directory principal for authored content
     photoUrl: photo,
   };
 }
@@ -132,26 +105,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Please enter a valid 7-digit admission number.");
     }
     if (isDemoMode) {
-      const u = parentFromAdmissionNo(admissionNo);
-      if (!u) throw new Error("No student found for this number. Try 2025001.");
+      const u: AppUser = {
+        uid: `parent-${admissionNo}`,
+        role: "parent",
+        displayName: "Parent",
+        admissionNo: admissionNo.trim(),
+        studentIds: [],
+      };
       persist(u);
       return u;
     }
     if (!auth) throw new Error("Auth unavailable.");
     await signInWithEmailAndPassword(auth, admissionNoToEmail(admissionNo.trim()), pin);
-    // onAuthStateChanged resolves the AppUser
-    const u = parentFromAdmissionNo(admissionNo) ?? {
-      uid: "parent", role: "parent" as Role, displayName: "Parent", admissionNo,
-    };
-    return u;
+    // onAuthStateChanged will call resolveFirebaseUser and update the user state.
+    return { uid: "pending", role: "parent", displayName: "Parent", admissionNo };
   };
 
   const loginStaff = async (email: string, password: string): Promise<AppUser> => {
     if (isDemoMode) {
-      const u = staffFromEmail(email);
-      if (!u) throw new Error("No staff account for that email. Try admin@elnode.school.");
-      persist(u);
-      return u;
+      throw new Error("Firebase is required for staff login. Please configure Firebase credentials.");
     }
     if (!auth) throw new Error("Auth unavailable.");
     const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -161,9 +133,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async (): Promise<AppUser> => {
     if (isDemoMode) {
-      // No Firebase in demo — sign in as the allowlisted super admin.
-      const email = SUPERADMIN_EMAILS[0] || "dewesh@eldenheights.org";
-      const u = superAdminAppUser(email, "Dewesh");
+      const email = SUPERADMIN_EMAILS[0] || "admin@school.app";
+      const u = superAdminAppUser(email, "Super Admin");
       persist(u);
       return u;
     }
@@ -176,17 +147,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut(auth);
       throw new Error("This Google account is not authorised for admin access.");
     }
-    // onAuthStateChanged resolves the AppUser too.
     return superAdminAppUser(email!, cred.user.displayName ?? undefined, cred.user.photoURL ?? undefined);
   };
 
   const demoLoginAs = (role: Role): AppUser => {
-    let u: AppUser | null = null;
-    if (role === "parent") u = parentFromAdmissionNo("2025001");
-    if (role === "teacher") u = staffFromEmail("anita@elnode.school");
-    if (role === "accountant") u = staffFromEmail("accounts@elnode.school");
-    if (role === "superadmin") u = staffFromEmail("admin@elnode.school");
-    if (!u) throw new Error("Demo account unavailable.");
+    const labels: Record<Role, string> = {
+      parent: "Parent", teacher: "Teacher", accountant: "Accountant", superadmin: "Super Admin",
+    };
+    const u: AppUser = {
+      uid: `demo-${role}`,
+      role,
+      displayName: labels[role],
+      ...(role === "parent" ? { studentIds: [], admissionNo: "0000000" } : { staffId: `demo-staff-${role}` }),
+    };
     persist(u);
     return u;
   };
@@ -203,21 +176,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// In a live project, the AppUser profile (role + links) lives in an
-// `appUsers/{uid}` document. Here we approximate from the seeded directory.
+// Resolves a Firebase Auth user to an AppUser. In production the
+// `appUsers/{uid}` Firestore document holds the role and linked IDs.
+// Here we derive the role from the email domain / allowlist as a fallback.
 async function resolveFirebaseUser(fbUser: User): Promise<AppUser> {
   const email = fbUser.email ?? "";
   if (isSuperAdminEmail(email)) {
     return superAdminAppUser(email, fbUser.displayName ?? undefined, fbUser.photoURL ?? undefined);
   }
-  if (email.includes("@parents.")) {
+  if (email.endsWith(`@${PARENT_EMAIL_DOMAIN}`) || email.includes("@parents.")) {
     const admissionNo = email.split("@")[0];
-    return parentFromAdmissionNo(admissionNo) ?? {
-      uid: fbUser.uid, role: "parent", displayName: "Parent", admissionNo,
+    return {
+      uid: fbUser.uid,
+      role: "parent",
+      displayName: fbUser.displayName ?? "Parent",
+      admissionNo,
+      studentIds: [],
+      email,
     };
   }
-  return staffFromEmail(email) ?? {
-    uid: fbUser.uid, role: "teacher", displayName: fbUser.displayName ?? "Staff", email,
+  // Default staff — role should be read from Firestore appUsers doc in production.
+  return {
+    uid: fbUser.uid,
+    role: "teacher",
+    displayName: fbUser.displayName ?? "Staff",
+    email,
+    staffId: fbUser.uid,
   };
 }
 

@@ -1,25 +1,92 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
-import { fullName, ageFromDob, formatDate } from "@/lib/utils";
+import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
+import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
-  Loader2, Copy, ShieldCheck,
+  Loader2, Copy, ShieldCheck, Upload, Download, FileText,
 } from "lucide-react";
+
+// ── CSV template ──────────────────────────────────────────────
+const CSV_HEADERS = [
+  "firstName", "lastName", "admissionNo", "gender",
+  "dob", "bloodGroup", "classId",
+  "fatherName", "motherName", "primaryContact", "allergies",
+];
+const CSV_EXAMPLE = [
+  "Aarav", "Mehta", "2025001", "male",
+  "2022-04-18", "B+", "cls-abc123",
+  "Rohit Mehta", "Sneha Mehta", "+91 98765 40001", "Peanuts",
+];
+
+function downloadTemplate() {
+  const csv = [CSV_HEADERS, CSV_EXAMPLE].map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "elnode-students-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+interface ParsedRow {
+  firstName: string; lastName: string; admissionNo: string;
+  gender: Student["gender"]; dob: string; bloodGroup: BloodGroup;
+  classId: string; fatherName: string; motherName: string;
+  primaryContact: string; allergies: string[];
+  _error?: string;
+}
+
+function parseCSV(text: string): ParsedRow[] {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  return lines.slice(1).map((line, i) => {
+    const vals = line.split(",").map((v) => v.trim());
+    const get = (key: string) => vals[headers.indexOf(key)] ?? "";
+    const admNo = get("admissionno");
+    if (!/^\d{7}$/.test(admNo)) {
+      return {
+        firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
+        dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
+        motherName: "", primaryContact: "", allergies: [],
+        _error: `Row ${i + 2}: Invalid 7-digit admission number "${admNo}"`,
+      };
+    }
+    return {
+      firstName: get("firstname"), lastName: get("lastname"),
+      admissionNo: admNo,
+      gender: (get("gender") as Student["gender"]) || "male",
+      dob: get("dob") || "2022-01-01",
+      bloodGroup: (get("bloodgroup") as BloodGroup) || "Unknown",
+      classId: get("classid"),
+      fatherName: get("fathername"), motherName: get("mothername"),
+      primaryContact: get("primarycontact"),
+      allergies: get("allergies") ? get("allergies").split(";").map((a) => a.trim()).filter(Boolean) : [],
+    };
+  });
+}
 
 export default function AdminStudents() {
   const data = useData();
   const [q, setQ] = useState("");
   const [classId, setClassId] = useState("all");
-  const [open, setOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const rows = data.students
     .filter((s) => classId === "all" || s.classId === classId)
-    .filter((s) => !q || fullName(s).toLowerCase().includes(q.toLowerCase()) || s.admissionNo.includes(q))
+    .filter(
+      (s) =>
+        !q ||
+        fullName(s).toLowerCase().includes(q.toLowerCase()) ||
+        s.admissionNo.includes(q),
+    )
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
 
   return (
@@ -29,7 +96,14 @@ export default function AdminStudents() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Students</h1>
           <p className="mt-1 text-sm text-slate-500">Directory of all enrolled children.</p>
         </div>
-        <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="h-4 w-4" /> Add Student</button>
+        <div className="flex gap-2">
+          <button onClick={() => setBulkOpen(true)} className="btn-ghost">
+            <Upload className="h-4 w-4" /> Bulk Upload
+          </button>
+          <button onClick={() => setAddOpen(true)} className="btn-primary">
+            <Plus className="h-4 w-4" /> Add Student
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-4">
@@ -42,23 +116,46 @@ export default function AdminStudents() {
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1.5">
-            <button onClick={() => setClassId("all")} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${classId === "all" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>All</button>
+            <button
+              onClick={() => setClassId("all")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${classId === "all" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+            >
+              All
+            </button>
             {data.classes.map((c) => (
-              <button key={c.id} onClick={() => setClassId(c.id)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${classId === c.id ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>{c.name}</button>
+              <button
+                key={c.id}
+                onClick={() => setClassId(c.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${classId === c.id ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+              >
+                {c.name}
+              </button>
             ))}
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or admission no…" className="input pl-9 sm:w-64" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search name or admission no…"
+              className="input pl-9 sm:w-64"
+            />
           </div>
         </div>
+
         {rows.length === 0 ? (
-          <div className="p-5"><EmptyState title="No students match" /></div>
+          <div className="p-8">
+            <EmptyState
+              title={data.students.length === 0 ? "No students yet" : "No students match"}
+              hint={data.students.length === 0 ? 'Add students individually or use "Bulk Upload" to import from CSV.' : undefined}
+            />
+          </div>
         ) : (
           <Table>
             <thead>
               <tr className="border-b border-slate-100">
-                <Th>Student</Th><Th>Admission</Th><Th>Class</Th><Th>Age</Th><Th>Blood</Th><Th>Allergies</Th><Th>Contact</Th><Th>Status</Th>
+                <Th>Student</Th><Th>Admission</Th><Th>Class</Th><Th>Age</Th>
+                <Th>Blood</Th><Th>Allergies</Th><Th>Contact</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -73,7 +170,7 @@ export default function AdminStudents() {
                       </div>
                     </Td>
                     <Td className="text-slate-500">{s.admissionNo}</Td>
-                    <Td>{cls?.name}</Td>
+                    <Td>{cls?.name ?? <span className="text-slate-300">—</span>}</Td>
                     <Td>{ageFromDob(s.dob)}</Td>
                     <Td><Badge tone="slate"><Droplet className="h-3.5 w-3.5" /> {s.bloodGroup}</Badge></Td>
                     <Td>{s.allergies.length ? <Badge tone="red">{s.allergies.join(", ")}</Badge> : <span className="text-slate-300">—</span>}</Td>
@@ -87,11 +184,176 @@ export default function AdminStudents() {
         )}
       </Card>
 
-      {open && <AddStudentModal onClose={() => setOpen(false)} />}
+      {addOpen && <AddStudentModal onClose={() => setAddOpen(false)} />}
+      {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
     </div>
   );
 }
 
+// ── Bulk Upload Modal ─────────────────────────────────────────
+function BulkUploadModal({ onClose }: { onClose: () => void }) {
+  const data = useData();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string));
+    reader.readAsText(file);
+  };
+
+  const validRows = rows.filter((r) => !r._error);
+  const errorRows = rows.filter((r) => r._error);
+
+  const importAll = async () => {
+    setImporting(true);
+    for (const row of validRows) {
+      const rollNo = data.students.filter((s) => s.classId === row.classId).length + 1;
+      data.addStudent({
+        admissionNo: row.admissionNo, firstName: row.firstName, lastName: row.lastName,
+        gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup, classId: row.classId, rollNo,
+        allergies: row.allergies,
+        emergencyContacts: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact }],
+        pickupPersons: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact, authorised: true }],
+        siblings: [], address: "—", fatherName: row.fatherName, motherName: row.motherName,
+        primaryContact: row.primaryContact,
+        admissionDate: new Date().toISOString().slice(0, 10),
+        transportRoute: "Self", status: "active",
+      });
+    }
+    setImporting(false);
+    setDone(true);
+  };
+
+  if (done) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+        <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft text-center">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+            <CheckCircle2 className="h-7 w-7" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900">Import complete</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            {validRows.length} student{validRows.length !== 1 ? "s" : ""} added successfully.
+          </p>
+          <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="text-lg font-bold text-slate-900">Bulk Upload Students</h3>
+        <p className="mt-1 text-sm text-slate-500">Download the template, fill it in, then upload the CSV.</p>
+
+        {/* Step 1 */}
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Step 1 — Download template</p>
+              <p className="mt-0.5 text-xs text-slate-500">CSV with all required column headers.</p>
+            </div>
+            <button onClick={downloadTemplate} className="btn-ghost shrink-0">
+              <Download className="h-4 w-4" /> Template CSV
+            </button>
+          </div>
+          {data.classes.length > 0 && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+              <p className="mb-1.5 text-xs font-semibold text-slate-600">Class IDs for the <code>classId</code> column:</p>
+              <div className="flex flex-wrap gap-2">
+                {data.classes.map((c) => (
+                  <span key={c.id} className="rounded bg-brand-50 px-2 py-0.5 font-mono text-xs text-brand-700">
+                    {c.id} = {c.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="mt-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
+            <strong>Tips:</strong> Use <code>;</code> to separate multiple allergies (e.g. <code>Peanuts;Dairy</code>).
+            Date: <code>YYYY-MM-DD</code>. Gender: <code>male</code> / <code>female</code> / <code>other</code>.
+          </div>
+        </div>
+
+        {/* Step 2 */}
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-800">Step 2 — Upload your CSV</p>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} className="hidden" />
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="mt-3 flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-8 hover:border-brand-400 hover:bg-brand-50"
+          >
+            <FileText className="h-8 w-8 text-slate-300" />
+            <span className="text-sm font-semibold text-slate-600">Click to choose CSV file</span>
+            <span className="text-xs text-slate-400">UTF-8 encoded, max 500 rows</span>
+          </button>
+        </div>
+
+        {/* Preview */}
+        {rows.length > 0 && (
+          <div className="mt-4">
+            <p className="text-sm font-semibold text-slate-800">
+              Preview — {rows.length} row{rows.length !== 1 ? "s" : ""}
+              {errorRows.length > 0 && (
+                <span className="ml-2 text-rose-600">({errorRows.length} error{errorRows.length !== 1 ? "s" : ""})</span>
+              )}
+            </p>
+            {errorRows.length > 0 && (
+              <div className="mt-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+                {errorRows.map((r, i) => <p key={i}>{r._error}</p>)}
+              </div>
+            )}
+            {validRows.length > 0 && (
+              <div className="mt-2 max-h-48 overflow-auto rounded-xl border border-slate-200">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {["Name", "Admission No", "Class ID", "Gender", "DOB", "Blood Group"].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left font-semibold text-slate-500">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {validRows.map((r, i) => (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 font-medium text-slate-800">{r.firstName} {r.lastName}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{r.admissionNo}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.classId}</td>
+                        <td className="px-3 py-2 capitalize text-slate-600">{r.gender}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.dob}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.bloodGroup}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {validRows.length > 0 && (
+              <button onClick={importAll} disabled={importing} className="btn-primary mt-4 w-full py-3">
+                {importing
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Importing…</>
+                  : <>Import {validRows.length} Student{validRows.length !== 1 ? "s" : ""}</>}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Add Student Modal ─────────────────────────────────────────
 function AddStudentModal({ onClose }: { onClose: () => void }) {
   const data = useData();
   const [form, setForm] = useState({
@@ -109,11 +371,10 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     if (!form.firstName || !/^\d{7}$/.test(form.admissionNo)) return;
     setBusy(true);
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
-    // Auto-generated initial PIN the parent uses with their admission number.
     const pin = String(Math.floor(100000 + Math.random() * 900000));
-    const id = `st-${form.admissionNo}`;
-    const student: Student = {
-      id, admissionNo: form.admissionNo, firstName: form.firstName, lastName: form.lastName,
+    const studentId = `st-${form.admissionNo}`;
+    const student: Omit<Student, "id"> & { id: string } = {
+      id: studentId, admissionNo: form.admissionNo, firstName: form.firstName, lastName: form.lastName,
       gender: form.gender, dob: form.dob || "2022-01-01", bloodGroup: form.bloodGroup,
       classId: form.classId, rollNo,
       allergies: form.allergies ? form.allergies.split(",").map((a) => a.trim()).filter(Boolean) : [],
@@ -124,14 +385,12 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
       admissionDate: new Date().toISOString().slice(0, 10), transportRoute: "Self", status: "active",
     };
 
-    // Reflect immediately in the local directory.
-    const { id: _omit, ...withoutId } = student;
+    const { id: _id, ...withoutId } = student;
     data.addStudent(withoutId);
 
     const email = admissionNoToEmail(form.admissionNo);
     let provision: "demo" | "created" | "failed" = "demo";
 
-    // When Firebase is connected, auto-provision the parent's Auth login.
     if (isFirebaseConfigured && auth?.currentUser) {
       try {
         const token = await auth.currentUser.getIdToken();
@@ -174,7 +433,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             : "bg-amber-50 text-amber-700"}`}>
             {created.provision === "created" && "✓ Firebase Auth account created — the parent can sign in now."}
             {created.provision === "failed" && "Saved locally, but the Firebase account could not be created. Check Admin SDK env vars."}
-            {created.provision === "demo" && "Demo mode — the Firebase Auth account is created automatically once Firebase is connected."}
+            {created.provision === "demo" && "Connect Firebase to auto-create the parent Auth account on the server."}
           </div>
           <p className="mt-3 text-xs text-slate-400">Share the admission number and PIN with the parent. They can change the PIN after first sign-in.</p>
           <button onClick={onClose} className="btn-primary mt-4 w-full py-3">Done</button>
@@ -190,12 +449,18 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         <h3 className="text-lg font-bold text-slate-900">Add Student</h3>
         <p className="text-sm text-slate-500">The 7-digit admission number becomes the parent login — a Firebase Auth account is generated automatically.</p>
+        {data.classes.length === 0 && (
+          <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            No classes found. Please add classes first from the Classes section.
+          </div>
+        )}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name"><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" /></Field>
           <Field label="Last name"><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" /></Field>
           <Field label="Admission no (7 digits)"><input value={form.admissionNo} onChange={(e) => set("admissionNo", e.target.value.replace(/\D/g, "").slice(0, 7))} className="input" /></Field>
           <Field label="Class">
             <select value={form.classId} onChange={(e) => set("classId", e.target.value)} className="input">
+              {data.classes.length === 0 && <option value="">— No classes —</option>}
               {data.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Field>
@@ -217,7 +482,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             <Field label="Allergies (comma separated)"><input value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="Peanuts, Dairy" className="input" /></Field>
           </div>
         </div>
-        <button onClick={save} disabled={!valid || busy} className="btn-primary mt-5 w-full py-3">
+        <button onClick={save} disabled={!valid || busy || data.classes.length === 0} className="btn-primary mt-5 w-full py-3">
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating login…</> : <>Add student & generate login</>}
         </button>
       </div>
@@ -228,10 +493,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
 function CredRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard?.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
+    navigator.clipboard?.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); });
   };
   return (
     <div className="flex items-center justify-between gap-3">
