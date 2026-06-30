@@ -2,11 +2,16 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Stat } from "@/components/ui";
-import { isDemoMode, isFirebaseConfigured, PARENT_EMAIL_DOMAIN } from "@/lib/firebase";
+import { Card, CardHeader, Badge } from "@/components/ui";
+import {
+  isDemoMode, isFirebaseConfigured, PARENT_EMAIL_DOMAIN,
+  FIREBASE_PROJECT_ID, FIREBASE_AUTH_DOMAIN, FIREBASE_DATABASE_ID, MISSING_FIREBASE_KEYS,
+  auth,
+} from "@/lib/firebase";
+import { upsertDoc, removeDoc } from "@/lib/firestore";
 import {
   Settings, Database, ShieldCheck, KeyRound, Mail, RefreshCw, CheckCircle2, AlertCircle,
-  Server, Cloud,
+  Server, Cloud, Stethoscope, Loader2, XCircle,
 } from "lucide-react";
 
 export default function AdminSettings() {
@@ -99,6 +104,9 @@ export default function AdminSettings() {
         </div>
       </Card>
 
+      {/* Diagnostics */}
+      <FirestoreDiagnostics />
+
       {/* Danger / demo controls */}
       {isDemoMode && (
         <Card>
@@ -120,6 +128,105 @@ function Field({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-slate-200 p-3.5">
       <p className="text-xs text-slate-400">{label}</p>
       <p className="mt-0.5 font-semibold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+// ── Firestore diagnostics ─────────────────────────────────────
+// Removes all ambiguity about why data may not be persisting: shows the build
+// mode, the signed-in Firebase Auth user, and runs a real write/delete against
+// Firestore, reporting the exact outcome (or error code).
+type TestResult =
+  | { state: "idle" }
+  | { state: "running" }
+  | { state: "ok"; detail: string }
+  | { state: "fail"; detail: string };
+
+function FirestoreDiagnostics() {
+  const [result, setResult] = useState<TestResult>({ state: "idle" });
+  const fbUser = auth?.currentUser ?? null;
+
+  const runTest = async () => {
+    setResult({ state: "running" });
+    if (isDemoMode) {
+      setResult({ state: "fail", detail: "App is in DEMO mode — no Firebase configured, so nothing is written to Firestore. Set the NEXT_PUBLIC_FIREBASE_* env vars and rebuild." });
+      return;
+    }
+    if (!fbUser) {
+      setResult({ state: "fail", detail: "Not signed into Firebase Auth. Writes require an authenticated user — sign in as the Super Admin (Google) and retry." });
+      return;
+    }
+    const id = `ping-${fbUser.uid}-${Date.now()}`;
+    try {
+      await upsertDoc("_diagnostics", { id, by: fbUser.email ?? fbUser.uid, at: new Date().toISOString() });
+      await removeDoc("_diagnostics", id).catch(() => {});
+      setResult({ state: "ok", detail: `Wrote and deleted _diagnostics/${id} in project "${FIREBASE_PROJECT_ID}" (db "${FIREBASE_DATABASE_ID}"). Firestore writes are working.` });
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      let hint = err?.message ?? String(e);
+      if (err?.code === "permission-denied" || /insufficient permissions/i.test(hint)) {
+        hint = "permission-denied — Firebase is connected, but the security rules block writes. Deploy firestore.rules (firebase deploy --only firestore:rules) and make sure your admin email is in adminEmails().";
+      } else if (err?.code === "failed-precondition" || /database.*\(default\)|does not exist/i.test(hint)) {
+        hint = `${hint} — this often means the database id is wrong. The app targets "${FIREBASE_DATABASE_ID}"; set NEXT_PUBLIC_FIREBASE_DATABASE_ID if your Firestore uses a named database.`;
+      }
+      setResult({ state: "fail", detail: hint });
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Firestore Diagnostics" icon={<Stethoscope className="h-5 w-5" />} />
+      <div className="space-y-4 p-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <DiagRow label="Build mode" value={isFirebaseConfigured ? "Firebase" : "Demo (localStorage only)"} ok={isFirebaseConfigured} />
+          <DiagRow label="Project ID" value={FIREBASE_PROJECT_ID || "—"} ok={Boolean(FIREBASE_PROJECT_ID)} />
+          <DiagRow label="Auth domain" value={FIREBASE_AUTH_DOMAIN || "—"} ok={Boolean(FIREBASE_AUTH_DOMAIN)} />
+          <DiagRow label="Database" value={FIREBASE_DATABASE_ID} ok />
+          <DiagRow
+            label="Signed-in Firebase user"
+            value={fbUser ? (fbUser.email ?? fbUser.uid) : "Not signed in"}
+            ok={Boolean(fbUser)}
+          />
+          <DiagRow
+            label="Missing env keys"
+            value={MISSING_FIREBASE_KEYS.length ? MISSING_FIREBASE_KEYS.join(", ") : "None"}
+            ok={MISSING_FIREBASE_KEYS.length === 0}
+          />
+        </div>
+
+        <button onClick={runTest} disabled={result.state === "running"} className="btn-primary">
+          {result.state === "running"
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing…</>
+            : <><Database className="h-4 w-4" /> Run Firestore write test</>}
+        </button>
+
+        {result.state === "ok" && (
+          <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-800">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{result.detail}</p>
+          </div>
+        )}
+        {result.state === "fail" && (
+          <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 p-4 text-sm text-rose-800">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{result.detail}</p>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function DiagRow({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-400">{label}</p>
+        <p className="mt-0.5 truncate font-semibold text-slate-800">{value}</p>
+      </div>
+      {ok
+        ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+        : <AlertCircle className="h-5 w-5 shrink-0 text-amber-500" />}
     </div>
   );
 }

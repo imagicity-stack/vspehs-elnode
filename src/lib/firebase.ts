@@ -28,6 +28,20 @@ export const isFirebaseConfigured = Boolean(
 /** True when running without a backend (seeded demo data). */
 export const isDemoMode = !isFirebaseConfigured;
 
+/** Config values surfaced (read-only) for the in-app diagnostics panel. */
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId ?? "";
+export const FIREBASE_AUTH_DOMAIN = firebaseConfig.authDomain ?? "";
+/** Which NEXT_PUBLIC_FIREBASE_* keys are missing — empty array means all present. */
+export const MISSING_FIREBASE_KEYS = (
+  [
+    ["NEXT_PUBLIC_FIREBASE_API_KEY", firebaseConfig.apiKey],
+    ["NEXT_PUBLIC_FIREBASE_PROJECT_ID", firebaseConfig.projectId],
+    ["NEXT_PUBLIC_FIREBASE_APP_ID", firebaseConfig.appId],
+  ] as const
+)
+  .filter(([, v]) => !v)
+  .map(([k]) => k);
+
 /** Domain used to synthesise a parent's email from their 7-digit number. */
 export const PARENT_EMAIL_DOMAIN =
   process.env.NEXT_PUBLIC_PARENT_EMAIL_DOMAIN || "parents.el-node.app";
@@ -79,6 +93,16 @@ if (isFirebaseConfigured) {
   } catch {
     db = useNamed ? getFirestore(app, FIREBASE_DATABASE_ID) : getFirestore(app);
   }
+}
+
+if (typeof window !== "undefined") {
+  // One-line confirmation in the browser console so it's obvious which mode the
+  // built bundle is running in (NEXT_PUBLIC_* vars are inlined at build time).
+  console.info(
+    isFirebaseConfigured
+      ? `[El-Node] Firebase mode · project "${FIREBASE_PROJECT_ID}" · db "${FIREBASE_DATABASE_ID}"`
+      : "[El-Node] DEMO mode — no Firebase env vars in this build. Data stays in localStorage only.",
+  );
 }
 
 export { app, auth, db };
