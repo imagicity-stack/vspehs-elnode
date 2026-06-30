@@ -8,7 +8,7 @@
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -66,9 +66,19 @@ if (isFirebaseConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
   // Use the named database when provided, otherwise the project default.
-  db = FIREBASE_DATABASE_ID && FIREBASE_DATABASE_ID !== "(default)"
-    ? getFirestore(app, FIREBASE_DATABASE_ID)
-    : getFirestore(app);
+  const useNamed = Boolean(FIREBASE_DATABASE_ID && FIREBASE_DATABASE_ID !== "(default)");
+  // `ignoreUndefinedProperties` lets us write records that carry optional
+  // (possibly undefined) fields without Firestore throwing. `initializeFirestore`
+  // must run before any `getFirestore`, and throws if already initialised
+  // (e.g. on Next.js fast-refresh) — fall back to the existing instance.
+  const settings = { ignoreUndefinedProperties: true };
+  try {
+    db = useNamed
+      ? initializeFirestore(app, settings, FIREBASE_DATABASE_ID)
+      : initializeFirestore(app, settings);
+  } catch {
+    db = useNamed ? getFirestore(app, FIREBASE_DATABASE_ID) : getFirestore(app);
+  }
 }
 
 export { app, auth, db };

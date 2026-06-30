@@ -208,6 +208,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
+  const [provisioned, setProvisioned] = useState(0);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -222,20 +223,57 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
 
   const importAll = async () => {
     setImporting(true);
+
+    // Roll numbers continue from the highest existing one per class so a batch
+    // doesn't hand out duplicates (state doesn't update mid-loop).
+    const rollTally: Record<string, number> = {};
+    data.students.forEach((s) => {
+      rollTally[s.classId] = Math.max(rollTally[s.classId] ?? 0, s.rollNo);
+    });
+
+    // When Firebase is live, provision each parent login + Firestore docs via
+    // the same protected route the single "Add Student" flow uses.
+    let token: string | null = null;
+    if (isFirebaseConfigured && auth?.currentUser) {
+      try { token = await auth.currentUser.getIdToken(); } catch { token = null; }
+    }
+
+    let created = 0;
+    const today = new Date().toISOString().slice(0, 10);
     for (const row of validRows) {
-      const rollNo = data.students.filter((s) => s.classId === row.classId).length + 1;
-      data.addStudent({
+      rollTally[row.classId] = (rollTally[row.classId] ?? 0) + 1;
+      const student: Student = {
+        id: `st-${row.admissionNo}`,
         admissionNo: row.admissionNo, firstName: row.firstName, lastName: row.lastName,
-        gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup, classId: row.classId, rollNo,
+        gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup,
+        classId: row.classId, rollNo: rollTally[row.classId],
         allergies: row.allergies,
         emergencyContacts: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact }],
         pickupPersons: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact, authorised: true }],
         siblings: [], address: "—", fatherName: row.fatherName, motherName: row.motherName,
         primaryContact: row.primaryContact,
-        admissionDate: new Date().toISOString().slice(0, 10),
-        transportRoute: "Self", status: "active",
-      });
+        admissionDate: today, transportRoute: "Self", status: "active",
+      };
+
+      const { id: _id, ...withoutId } = student;
+      data.addStudent(withoutId);
+
+      if (token) {
+        try {
+          const res = await fetch("/api/students/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            // Default PIN = admission number; parents can change it later.
+            body: JSON.stringify({ student, pin: row.admissionNo }),
+          });
+          if (res.ok) created++;
+        } catch {
+          /* leave provisioning count unchanged; student still saved locally */
+        }
+      }
     }
+
+    setProvisioned(created);
     setImporting(false);
     setDone(true);
   };
@@ -252,6 +290,21 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           <p className="mt-1 text-sm text-slate-500">
             {validRows.length} student{validRows.length !== 1 ? "s" : ""} added successfully.
           </p>
+          {isFirebaseConfigured ? (
+            <p className="mt-2 text-xs text-slate-500">
+              {provisioned} parent login{provisioned !== 1 ? "s" : ""} provisioned
+              {" "}(login = admission number, PIN = admission number).
+              {provisioned < validRows.length && (
+                <span className="mt-1 block text-amber-600">
+                  {validRows.length - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-600">
+              Demo mode — saved to this browser only. Configure Firebase to persist and create parent logins.
+            </p>
+          )}
           <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
         </div>
       </div>
