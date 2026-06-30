@@ -9,6 +9,7 @@ import {
   auth,
 } from "@/lib/firebase";
 import { upsertDoc, removeDoc } from "@/lib/firestore";
+import { SCHOOL_NAME, SCHOOL_LOCATION } from "@/lib/branding";
 import {
   Settings, Database, ShieldCheck, KeyRound, Mail, RefreshCw, CheckCircle2, AlertCircle,
   Server, Cloud, Stethoscope, Loader2, XCircle,
@@ -35,14 +36,14 @@ export default function AdminSettings() {
       <Card>
         <CardHeader title="School Profile" icon={<Settings className="h-5 w-5" />} />
         <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="School Name" value="El-Node Pre-Primary" />
+          <Field label="School Name" value={SCHOOL_NAME} />
+          <Field label="Location" value={SCHOOL_LOCATION} />
           <Field label="Academic Year" value="2025 – 2026" />
+          <Field label="Currency" value="INR (₹)" />
           <Field label="Classes" value={`${data.classes.length}`} />
           <Field label="Students" value={`${data.students.length}`} />
           <Field label="Staff" value={`${data.staff.length}`} />
-          <Field label="Currency" value="INR (₹)" />
-          <Field label="Location" value="Pune, India" />
-          <Field label="Contact" value="admin@elnode.school" />
+          <Field label="Contact" value="contact.vsp@eldenheights.org" />
         </div>
       </Card>
 
