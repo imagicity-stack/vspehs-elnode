@@ -55,6 +55,11 @@ service cloud.firestore {
       return isAllowlistedAdmin() || role() in ["accountant", "superadmin"];
     }
 
+    // Throwaway collection used by the in-app diagnostics "write test".
+    match /_diagnostics/{id} {
+      allow read, write: if isSignedIn();
+    }
+
     // App user profiles
     match /appUsers/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
