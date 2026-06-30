@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAdminApp } from "@/lib/firebaseAdmin";
-import { isSuperAdminEmail } from "@/lib/firebase";
+import { isSuperAdminEmail, DEFAULT_PASSWORD } from "@/lib/firebase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
   const domain = process.env.NEXT_PUBLIC_PARENT_EMAIL_DOMAIN || "parents.el-node.app";
   const email = `${student.admissionNo}@${domain}`;
-  const password = String(body.pin || student.admissionNo);
+  const password = String(body.pin || DEFAULT_PASSWORD);
   const displayName = `${student.firstName} ${student.lastName} (Parent)`.trim();
 
   // 3) Create (or reset) the parent Auth account.

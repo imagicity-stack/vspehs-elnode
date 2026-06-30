@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { auth, isFirebaseConfigured, DEFAULT_PASSWORD } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
@@ -26,12 +26,6 @@ async function callAdmin(path: string, payload: unknown): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-// Temporary password generated for a new staff login (admin shares it once).
-function genPassword(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 const roleTone: Record<StaffRole, "brand" | "amber" | "violet" | "slate"> = {
@@ -67,8 +61,8 @@ export default function AdminStaff() {
       toast.info("Password reset needs Firebase — not available in demo mode.");
       return;
     }
-    if (!confirm(`Reset ${s.name}'s password? A new temporary password will be generated.`)) return;
-    const password = genPassword();
+    if (!confirm(`Reset ${s.name}'s password back to "${DEFAULT_PASSWORD}"?`)) return;
+    const password = DEFAULT_PASSWORD;
     const ok = await callAdmin("/api/staff/manage", { action: "reset", staffId: s.id, email: s.email, password });
     if (ok) setResetCred({ name: s.name, email: s.email, password });
     else toast.error(`Couldn't reset ${s.name}'s password — check their login exists and Firebase Admin setup.`);
@@ -223,7 +217,7 @@ export default function AdminStaff() {
             </div>
             <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <CredRow icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={resetCred.email} />
-              <CredRow icon={<KeyRound className="h-4 w-4" />} label="New temporary password" value={resetCred.password} />
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Default password" value={resetCred.password} />
             </div>
             <button onClick={() => setResetCred(null)} className="btn-primary mt-5 w-full py-3">Done</button>
           </div>
@@ -305,7 +299,7 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
   const save = async () => {
     if (!form.name || !emailValid || dupEmail) return;
     setBusy(true);
-    const password = genPassword();
+    const password = DEFAULT_PASSWORD;
     const newStaff = data.addStaff({
       staffCode: `EMP-${String(data.staff.length + 1).padStart(3, "0")}`,
       name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, phone: form.phone,
@@ -353,7 +347,7 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
           {created.provision === "created" && (
             <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <CredRow icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={created.email} />
-              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Temporary password" value={created.password} />
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Default password" value={created.password} />
               <p className="flex items-start gap-1.5 pt-1 text-xs text-slate-400">
                 <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 The staff member should change this password after their first sign-in.

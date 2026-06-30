@@ -47,6 +47,13 @@ export const PARENT_EMAIL_DOMAIN =
   process.env.NEXT_PUBLIC_PARENT_EMAIL_DOMAIN || "parents.el-node.app";
 
 /**
+ * Initial password assigned to every newly-created login (parents and staff).
+ * Users change it from "Change password" in their portal. Configurable via env.
+ */
+export const DEFAULT_PASSWORD =
+  process.env.NEXT_PUBLIC_DEFAULT_PASSWORD || "password123";
+
+/**
  * Firestore database id. Firebase projects can host multiple named databases;
  * leave unset (or "(default)") to use the project's default database.
  */
