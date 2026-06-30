@@ -69,7 +69,7 @@ export function admissionNoToEmail(admissionNo: string): string {
  * Defaults to the founding administrator.
  */
 export const SUPERADMIN_EMAILS = (
-  process.env.NEXT_PUBLIC_SUPERADMIN_EMAILS || "dewesh@eldenheights.org"
+  process.env.NEXT_PUBLIC_SUPERADMIN_EMAILS || "dewesh@eldenheights.org,contact.vsp@eldenheights.org"
 )
   .split(",")
   .map((e) => e.trim().toLowerCase())
