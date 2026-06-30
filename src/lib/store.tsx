@@ -16,7 +16,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, isDemoMode } from "./firebase";
-import { fetchCollection, upsertDoc, removeDoc } from "./firestore";
+import { subscribeCollection, upsertDoc, removeDoc } from "./firestore";
 import { toast } from "@/components/Toast";
 import {
   AttendanceRecord, Circular, SchoolClass, Concession, DailyUpdate, Exam,
@@ -75,27 +75,6 @@ function emptyState(): DataState {
   };
 }
 
-// Pull every collection the signed-in user is allowed to read. Reads are
-// role-scoped by the Firestore rules, so a denied collection (e.g. a parent
-// reading `staff`) is tolerated and simply left empty rather than failing the
-// whole hydration.
-async function hydrateFromFirestore(): Promise<DataState> {
-  const base = emptyState();
-  const results = await Promise.allSettled(
-    COLLECTION_KEYS.map((k) => fetchCollection<{ id: string }>(k)),
-  );
-  const target = base as unknown as Record<string, unknown>;
-  results.forEach((res, i) => {
-    const key = COLLECTION_KEYS[i];
-    if (res.status === "fulfilled") {
-      target[key] = res.value;
-    } else {
-      console.warn(`[firestore] could not load "${key}":`, res.reason?.message ?? res.reason);
-    }
-  });
-  return base;
-}
-
 const STORAGE_KEY = "elnode.data.v2";
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -137,6 +116,8 @@ interface DataContextValue extends DataState {
   saveExamResult: (r: ExamResult) => void;
   setExamPublished: (examId: string, published: boolean) => void;
   resetDemo: () => void;
+  /** True while the initial data load is still in flight (Firebase mode). */
+  loading: boolean;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -144,9 +125,13 @@ const DataContext = createContext<DataContextValue | null>(null);
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DataState>(emptyState);
   const [hydrated, setHydrated] = useState(false);
+  // `loading` is true while the first batch of data is still arriving, so the
+  // UI can show a spinner instead of an empty state that looks like data loss.
+  const [loading, setLoading] = useState(!isDemoMode);
 
-  // Hydrate. Demo mode reads localStorage once; Firebase mode (re)loads from
-  // Firestore whenever the signed-in user changes.
+  // Demo mode reads localStorage once. Firebase mode opens a live onSnapshot
+  // listener per collection on sign-in, so edits from any session appear here
+  // in real time; listeners are torn down on sign-out / user change.
   useEffect(() => {
     if (isDemoMode) {
       try {
@@ -156,26 +141,62 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
       setHydrated(true);
+      setLoading(false);
       return;
     }
     if (!auth) {
       setHydrated(true);
+      setLoading(false);
       return;
     }
-    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+
+    let collectionUnsubs: (() => void)[] = [];
+    const teardown = () => {
+      collectionUnsubs.forEach((u) => u());
+      collectionUnsubs = [];
+    };
+
+    const unsub = onAuthStateChanged(auth, (fbUser) => {
+      teardown();
+      setHydrated(true);
       if (!fbUser) {
         setState(emptyState());
-        setHydrated(true);
+        setLoading(false);
         return;
       }
-      try {
-        setState(await hydrateFromFirestore());
-      } catch (e) {
-        console.error("[firestore] hydration failed", e);
-      }
-      setHydrated(true);
+      // New user: clear stale data and stream the collections they can read.
+      setState(emptyState());
+      setLoading(true);
+      const responded = new Set<string>();
+      const markResponded = (key: string) => {
+        responded.add(key);
+        if (responded.size >= COLLECTION_KEYS.length) setLoading(false);
+      };
+      // Safety net so a never-firing listener can't pin the spinner forever.
+      const safety = setTimeout(() => setLoading(false), 8000);
+
+      collectionUnsubs = COLLECTION_KEYS.map((key) =>
+        subscribeCollection<{ id: string }>(
+          key,
+          (rows) => {
+            setState((s) => ({ ...s, [key]: rows }));
+            markResponded(key);
+          },
+          (err) => {
+            // Role-scoped reads (e.g. a parent reading `staff`) are denied —
+            // that's expected; just leave the collection empty.
+            console.warn(`[firestore] live read of "${key}" unavailable:`, err?.message ?? err);
+            markResponded(key);
+          },
+        ),
+      );
+      collectionUnsubs.push(() => clearTimeout(safety));
     });
-    return () => unsub();
+
+    return () => {
+      teardown();
+      unsub();
+    };
   }, []);
 
   // Persist to localStorage only in demo mode. In Firebase mode the per-mutator
@@ -209,6 +230,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     return {
       ...state,
+      loading,
 
       markAttendance: (records) => {
         const keys = new Set(records.map((r) => `${r.studentId}|${r.date}`));
@@ -445,7 +467,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, loading]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

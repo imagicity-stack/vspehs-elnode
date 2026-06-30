@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
-import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
+import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
@@ -59,22 +59,25 @@ interface ParsedRow {
   _error?: string;
 }
 
-function parseCSV(text: string): ParsedRow[] {
+function parseCSV(text: string, existing: Set<string>): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const seen = new Set<string>(); // admission numbers seen earlier in this file
   return lines.slice(1).map((line, i) => {
     const vals = line.split(",").map((v) => v.trim());
     const get = (key: string) => vals[headers.indexOf(key)] ?? "";
     const admNo = get("admissionno");
-    if (!/^\d{7}$/.test(admNo)) {
-      return {
-        firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
-        dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
-        motherName: "", primaryContact: "", allergies: [],
-        _error: `Row ${i + 2}: Invalid 7-digit admission number "${admNo}"`,
-      };
-    }
+    const fail = (msg: string): ParsedRow => ({
+      firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
+      dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
+      motherName: "", primaryContact: "", allergies: [],
+      _error: `Row ${i + 2}: ${msg}`,
+    });
+    if (!/^\d{7}$/.test(admNo)) return fail(`Invalid 7-digit admission number "${admNo}"`);
+    if (existing.has(admNo)) return fail(`Admission number ${admNo} is already enrolled`);
+    if (seen.has(admNo)) return fail(`Admission number ${admNo} is duplicated in this file`);
+    seen.add(admNo);
     return {
       firstName: get("firstname"), lastName: get("lastname"),
       admissionNo: admNo,
@@ -176,7 +179,9 @@ export default function AdminStudents() {
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        {data.loading && data.students.length === 0 ? (
+          <Loading label="Loading students…" />
+        ) : rows.length === 0 ? (
           <div className="p-8">
             <EmptyState
               title={data.students.length === 0 ? "No students yet" : "No students match"}
@@ -254,8 +259,9 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const existing = new Set(data.students.map((s) => s.admissionNo));
     const reader = new FileReader();
-    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string));
+    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string, existing));
     reader.readAsText(file);
   };
 
@@ -613,8 +619,10 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
   }>(null);
 
+  const dupAdmission = data.students.some((s) => s.admissionNo === form.admissionNo);
+
   const save = async () => {
-    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo)) return;
+    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
     setBusy(true);
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
     const pin = String(Math.floor(100000 + Math.random() * 900000));
@@ -655,7 +663,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     setCreated({ admissionNo: form.admissionNo, pin, email, provision });
   };
 
-  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo);
+  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
 
   if (created) {
     return (
@@ -703,7 +711,14 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name"><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" /></Field>
           <Field label="Last name"><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" /></Field>
-          <Field label="Admission no (7 digits)"><input value={form.admissionNo} onChange={(e) => set("admissionNo", e.target.value.replace(/\D/g, "").slice(0, 7))} className="input" /></Field>
+          <Field label="Admission no (7 digits)">
+            <input
+              value={form.admissionNo}
+              onChange={(e) => set("admissionNo", e.target.value.replace(/\D/g, "").slice(0, 7))}
+              className={`input ${dupAdmission ? "border-rose-400 focus:ring-rose-300" : ""}`}
+            />
+            {dupAdmission && <p className="mt-1 text-xs text-rose-600">A student with this admission number already exists.</p>}
+          </Field>
           <Field label="Class">
             <select value={form.classId} onChange={(e) => set("classId", e.target.value)} className="input">
               {data.classes.length === 0 && <option value="">— No classes —</option>}

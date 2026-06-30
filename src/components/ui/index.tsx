@@ -135,6 +135,16 @@ export function EmptyState({
   );
 }
 
+// ── Loading placeholder ──────────────────────────────────────
+export function Loading({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-brand-500" />
+      <p className="text-sm text-slate-400">{label}</p>
+    </div>
+  );
+}
+
 // ── Simple table ─────────────────────────────────────────────
 export function Table({ children }: { children: React.ReactNode }) {
   return (

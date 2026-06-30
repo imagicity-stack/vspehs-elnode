@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useData } from "@/lib/store";
 import { Subject } from "@/lib/types";
-import { Card, Table, Th, Td, Badge, Stat, EmptyState } from "@/components/ui";
+import { Card, Table, Th, Td, Badge, Stat, EmptyState, Loading } from "@/components/ui";
 import { BookOpen, Plus, Edit2, Trash2, X, Loader2, Hash } from "lucide-react";
 
 export default function AdminSubjects() {
@@ -51,7 +51,9 @@ export default function AdminSubjects() {
       </div>
 
       <Card>
-        {data.subjects.length === 0 ? (
+        {data.loading && data.subjects.length === 0 ? (
+          <Loading label="Loading subjects…" />
+        ) : data.subjects.length === 0 ? (
           <div className="p-8">
             <EmptyState
               icon={<BookOpen className="h-8 w-8" />}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat } from "@/components/ui";
+import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
 import { Staff, StaffRole } from "@/lib/types";
 import {
@@ -105,6 +105,17 @@ export default function AdminStaff() {
 
       <Card>
         <CardHeader title="Staff Directory" icon={<Briefcase className="h-5 w-5" />} />
+        {data.loading && data.staff.length === 0 ? (
+          <Loading label="Loading staff…" />
+        ) : data.staff.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              icon={<GraduationCap className="h-8 w-8" />}
+              title="No staff yet"
+              hint="Add teachers, accountants and support staff — each gets a login."
+            />
+          </div>
+        ) : (
         <Table>
           <thead>
             <tr className="border-b border-slate-100">
@@ -174,6 +185,7 @@ export default function AdminStaff() {
             })}
           </tbody>
         </Table>
+        )}
       </Card>
 
       {open && <AddStaffModal onClose={() => setOpen(false)} />}
@@ -247,9 +259,12 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
   } | null>(null);
 
   const isTeacher = form.role === "teacher" || form.role === "helper";
+  const emailClean = form.email.trim().toLowerCase();
+  const dupEmail = emailClean.length > 0 && data.staff.some((s) => s.email.toLowerCase() === emailClean);
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailClean);
 
   const save = async () => {
-    if (!form.name || !form.email) return;
+    if (!form.name || !emailValid || dupEmail) return;
     setBusy(true);
     const password = genPassword();
     const newStaff = data.addStaff({
@@ -328,7 +343,13 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="label">Work email</label>
-            <input value={form.email} onChange={(e) => set("email", e.target.value)} className="input" placeholder="name@school.app" />
+            <input
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              className={`input ${dupEmail ? "border-rose-400 focus:ring-rose-300" : ""}`}
+              placeholder="name@school.app"
+            />
+            {dupEmail && <p className="mt-1 text-xs text-rose-600">A staff member with this email already exists.</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -373,7 +394,7 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-        <button onClick={save} disabled={!form.name || !form.email || busy} className="btn-primary mt-5 w-full py-3">
+        <button onClick={save} disabled={!form.name || !emailValid || dupEmail || busy} className="btn-primary mt-5 w-full py-3">
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Adding…</> : <><BadgeCheck className="h-4 w-4" /> Add staff</>}
         </button>
       </div>

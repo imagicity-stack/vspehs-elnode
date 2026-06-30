@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth, portalHome } from "@/lib/auth";
+import { useData } from "@/lib/store";
 import { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui";
@@ -29,6 +30,7 @@ export function PortalShell({
   role, nav, children,
 }: { role: Role; nav: NavItem[]; children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
+  const { loading: dataLoading } = useData();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -106,6 +108,13 @@ export function PortalShell({
       )}
 
       <div className="lg:pl-64">
+        {/* Live data-loading bar */}
+        {dataLoading && (
+          <div className="fixed inset-x-0 top-0 z-40 h-0.5 overflow-hidden bg-brand-100 lg:left-64">
+            <div className="h-full w-1/3 animate-progress rounded-full bg-brand-500" />
+          </div>
+        )}
+
         {/* Topbar */}
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-3">
