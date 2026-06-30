@@ -4,14 +4,12 @@
 // El-Node — Client data store
 // ─────────────────────────────────────────────────────────────
 // A single React context that holds every collection and exposes typed
-// mutators used across the portals. In DEMO MODE it is seeded from
-// `mockData` and persisted to localStorage so changes survive reloads.
-// When Firebase is configured the same shape can be hydrated from Firestore
-// (see src/lib/firestore.ts) — the UI layer is storage-agnostic.
+// mutators used across the portals. Data is persisted to localStorage so
+// changes survive reloads. When Firebase is configured the store is hydrated
+// from Firestore (see src/lib/firestore.ts) — the UI layer is storage-agnostic.
 // ─────────────────────────────────────────────────────────────
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import * as seed from "./mockData";
 import {
   AttendanceRecord, Circular, SchoolClass, Concession, DailyUpdate, Exam,
   ExamResult, FeeHead, Homework, Invoice, LeaveRequest, Payment, PaymentMethod,
@@ -38,29 +36,29 @@ interface DataState {
   taskItems: TaskItem[];
 }
 
-function seededState(): DataState {
+function emptyState(): DataState {
   return {
-    classes: seed.classes,
-    staff: seed.staff,
-    students: seed.students,
-    feeHeads: seed.feeHeads,
-    invoices: seed.invoices,
-    payments: seed.payments,
-    concessions: seed.concessions,
-    attendance: seed.attendance,
-    staffAttendance: seed.staffAttendance,
-    dailyUpdates: seed.dailyUpdates,
-    homework: seed.homework,
-    circulars: seed.circulars,
-    events: seed.events,
-    exams: seed.exams,
-    examResults: seed.examResults,
-    leaveRequests: seed.leaveRequests,
-    taskItems: seed.taskItems,
+    classes: [],
+    staff: [],
+    students: [],
+    feeHeads: [],
+    invoices: [],
+    payments: [],
+    concessions: [],
+    attendance: [],
+    staffAttendance: [],
+    dailyUpdates: [],
+    homework: [],
+    circulars: [],
+    events: [],
+    exams: [],
+    examResults: [],
+    leaveRequests: [],
+    taskItems: [],
   };
 }
 
-const STORAGE_KEY = "elnode.data.v1";
+const STORAGE_KEY = "elnode.data.v2";
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
 
 interface DataContextValue extends DataState {
@@ -86,6 +84,11 @@ interface DataContextValue extends DataState {
   addStudent: (s: Omit<Student, "id">) => void;
   updateStudent: (id: string, patch: Partial<Student>) => void;
   addStaff: (s: Omit<Staff, "id">) => void;
+  updateStaff: (id: string, patch: Partial<Staff>) => void;
+  // classes
+  addClass: (c: Omit<SchoolClass, "id">) => void;
+  updateClass: (id: string, patch: Partial<SchoolClass>) => void;
+  deleteClass: (id: string) => void;
   // exams
   saveExamResult: (r: ExamResult) => void;
   setExamPublished: (examId: string, published: boolean) => void;
@@ -95,7 +98,7 @@ interface DataContextValue extends DataState {
 const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<DataState>(seededState);
+  const [state, setState] = useState<DataState>(emptyState);
   const [hydrated, setHydrated] = useState(false);
 
   // hydrate from localStorage (demo persistence)
@@ -195,6 +198,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addStaff: (st) =>
         setState((s) => ({ ...s, staff: [...s.staff, { ...st, id: uid("s") }] })),
 
+      updateStaff: (id, p) =>
+        setState((s) => ({
+          ...s,
+          staff: s.staff.map((st) => (st.id === id ? { ...st, ...p } : st)),
+        })),
+
+      addClass: (c) =>
+        setState((s) => ({ ...s, classes: [...s.classes, { ...c, id: uid("cls") }] })),
+
+      updateClass: (id, p) =>
+        setState((s) => ({
+          ...s,
+          classes: s.classes.map((c) => (c.id === id ? { ...c, ...p } : c)),
+        })),
+
+      deleteClass: (id) =>
+        setState((s) => ({ ...s, classes: s.classes.filter((c) => c.id !== id) })),
+
       saveExamResult: (r) =>
         setState((s) => {
           const exists = s.examResults.some((x) => x.id === r.id);
@@ -213,8 +234,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         })),
 
       resetDemo: () => {
-        const fresh = seededState();
-        setState(fresh);
+        setState(emptyState());
         try {
           localStorage.removeItem(STORAGE_KEY);
         } catch {
