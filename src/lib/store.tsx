@@ -13,10 +13,11 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import {
   AttendanceRecord, Circular, SchoolClass, Concession, DailyUpdate, Exam,
   ExamResult, FeeHead, Homework, Invoice, LeaveRequest, Payment, PaymentMethod,
-  SchoolEvent, Staff, StaffAttendanceRecord, Student, TaskItem,
+  SchoolEvent, Staff, StaffAttendanceRecord, Student, Subject, TaskItem,
 } from "./types";
 
 interface DataState {
+  subjects: Subject[];
   classes: SchoolClass[];
   staff: Staff[];
   students: Student[];
@@ -38,6 +39,7 @@ interface DataState {
 
 function emptyState(): DataState {
   return {
+    subjects: [],
     classes: [],
     staff: [],
     students: [],
@@ -85,6 +87,10 @@ interface DataContextValue extends DataState {
   updateStudent: (id: string, patch: Partial<Student>) => void;
   addStaff: (s: Omit<Staff, "id">) => void;
   updateStaff: (id: string, patch: Partial<Staff>) => void;
+  // subjects
+  addSubject: (s: Omit<Subject, "id">) => void;
+  updateSubject: (id: string, patch: Partial<Subject>) => void;
+  deleteSubject: (id: string) => void;
   // classes
   addClass: (c: Omit<SchoolClass, "id">) => void;
   updateClass: (id: string, patch: Partial<SchoolClass>) => void;
@@ -202,6 +208,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setState((s) => ({
           ...s,
           staff: s.staff.map((st) => (st.id === id ? { ...st, ...p } : st)),
+        })),
+
+      addSubject: (sub) =>
+        setState((s) => ({ ...s, subjects: [...s.subjects, { ...sub, id: uid("sub") }] })),
+
+      updateSubject: (id, p) =>
+        setState((s) => ({
+          ...s,
+          subjects: s.subjects.map((sub) => (sub.id === id ? { ...sub, ...p } : sub)),
+        })),
+
+      deleteSubject: (id) =>
+        setState((s) => ({
+          ...s,
+          subjects: s.subjects.filter((sub) => sub.id !== id),
+          // Remove deleted subject from all staff
+          staff: s.staff.map((m) => ({
+            ...m,
+            subjects: m.subjects.filter((sid) => sid !== id),
+          })),
         })),
 
       addClass: (c) =>

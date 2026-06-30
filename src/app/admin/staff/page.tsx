@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
+import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
-import { StaffRole } from "@/lib/types";
+import { Staff, StaffRole } from "@/lib/types";
 import {
-  GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase,
+  GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase, Edit2, BookOpen,
 } from "lucide-react";
 
 const roleTone: Record<StaffRole, "brand" | "amber" | "violet" | "slate"> = {
@@ -16,6 +16,7 @@ const roleTone: Record<StaffRole, "brand" | "amber" | "violet" | "slate"> = {
 export default function AdminStaff() {
   const data = useData();
   const [open, setOpen] = useState(false);
+  const [editStaff, setEditStaff] = useState<Staff | null>(null);
   const today = todayISO();
 
   const pendingLeave = data.leaveRequests.filter((l) => l.status === "pending");
@@ -69,12 +70,17 @@ export default function AdminStaff() {
         <Table>
           <thead>
             <tr className="border-b border-slate-100">
-              <Th>Name</Th><Th>Role</Th><Th>Qualification</Th><Th>Classes</Th><Th>Experience</Th><Th>Contact</Th><Th>Status</Th>
+              <Th>Name</Th><Th>Role</Th><Th>Subjects</Th><Th>Classes</Th><Th>Experience</Th><Th>Contact</Th><Th>Status</Th><Th></Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {data.staff.map((s) => {
-              const classNames = data.classes.filter((c) => s.assignedClassIds.includes(c.id) || c.classTeacherId === s.id).map((c) => c.name);
+              const classNames = data.classes
+                .filter((c) => s.assignedClassIds.includes(c.id) || c.classTeacherId === s.id)
+                .map((c) => c.name);
+              const subjectNames = data.subjects
+                .filter((sub) => s.subjects.includes(sub.id))
+                .map((sub) => sub.name);
               return (
                 <tr key={s.id} className="hover:bg-slate-50">
                   <Td>
@@ -87,7 +93,17 @@ export default function AdminStaff() {
                     </div>
                   </Td>
                   <Td><Badge tone={roleTone[s.role]}>{s.role}</Badge></Td>
-                  <Td className="text-slate-500">{s.qualification}</Td>
+                  <Td>
+                    {subjectNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {subjectNames.map((n) => (
+                          <Badge key={n} tone="violet">{n}</Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </Td>
                   <Td>{classNames.length ? classNames.join(", ") : <span className="text-slate-300">—</span>}</Td>
                   <Td>{s.experienceYears} yrs</Td>
                   <Td>
@@ -97,6 +113,15 @@ export default function AdminStaff() {
                     </div>
                   </Td>
                   <Td><Badge tone={s.status === "active" ? "green" : s.status === "on-leave" ? "amber" : "slate"}>{s.status}</Badge></Td>
+                  <Td>
+                    <button
+                      onClick={() => setEditStaff(s)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                      title="Edit staff"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                  </Td>
                 </tr>
               );
             })}
@@ -105,17 +130,71 @@ export default function AdminStaff() {
       </Card>
 
       {open && <AddStaffModal onClose={() => setOpen(false)} />}
+      {editStaff && <EditStaffModal staff={editStaff} onClose={() => setEditStaff(null)} />}
     </div>
   );
 }
 
+// ── Subjects checklist ────────────────────────────────────────
+function SubjectsCheckList({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const { subjects } = useData();
+
+  if (subjects.length === 0) {
+    return (
+      <div className="mt-1 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <BookOpen className="h-4 w-4 shrink-0" />
+        No subjects in the system yet. Add subjects from{" "}
+        <a href="/admin/subjects" className="font-semibold underline">Admin → Subjects</a> first.
+      </div>
+    );
+  }
+
+  const toggle = (id: string) =>
+    onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+
+  return (
+    <div className="mt-1 grid max-h-44 grid-cols-2 gap-1.5 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+      {subjects.map((sub) => {
+        const checked = selected.includes(sub.id);
+        return (
+          <label
+            key={sub.id}
+            className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 transition ${
+              checked ? "border-brand-400 bg-brand-50" : "border-transparent hover:bg-white"
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => toggle(sub.id)}
+              className="h-3.5 w-3.5 accent-brand-600"
+            />
+            <span className="flex-1 text-xs font-medium text-slate-700">{sub.name}</span>
+            <span className="font-mono text-[10px] text-slate-400">{sub.code}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Add Staff Modal ───────────────────────────────────────────
 function AddStaffModal({ onClose }: { onClose: () => void }) {
   const data = useData();
   const [form, setForm] = useState({
     name: "", email: "", phone: "", role: "teacher" as StaffRole,
     qualification: "", experienceYears: "0",
   });
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const isTeacher = form.role === "teacher" || form.role === "helper";
 
   const save = () => {
     if (!form.name || !form.email) return;
@@ -124,7 +203,9 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
       name: form.name, email: form.email, role: form.role, phone: form.phone,
       qualification: form.qualification || "—", experienceYears: Number(form.experienceYears) || 0,
       joiningDate: new Date().toISOString().slice(0, 10), dob: "1990-01-01", address: "—",
-      assignedClassIds: [], subjects: [], status: "active",
+      assignedClassIds: [],
+      subjects: isTeacher ? selectedSubjects : [],
+      status: "active",
     });
     onClose();
   };
@@ -132,28 +213,159 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
-        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+      <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
         <h3 className="text-lg font-bold text-slate-900">Add Staff</h3>
         <p className="text-sm text-slate-500">Staff sign in with their work email.</p>
         <div className="mt-4 space-y-3">
-          <div><label className="label">Full name</label><input value={form.name} onChange={(e) => set("name", e.target.value)} className="input" /></div>
-          <div><label className="label">Work email</label><input value={form.email} onChange={(e) => set("email", e.target.value)} className="input" placeholder="name@elnode.school" /></div>
+          <div>
+            <label className="label">Full name</label>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} className="input" autoFocus />
+          </div>
+          <div>
+            <label className="label">Work email</label>
+            <input value={form.email} onChange={(e) => set("email", e.target.value)} className="input" placeholder="name@school.app" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Phone</label><input value={form.phone} onChange={(e) => set("phone", e.target.value)} className="input" /></div>
+            <div>
+              <label className="label">Phone</label>
+              <input value={form.phone} onChange={(e) => set("phone", e.target.value)} className="input" />
+            </div>
             <div>
               <label className="label">Role</label>
-              <select value={form.role} onChange={(e) => set("role", e.target.value)} className="input capitalize">
-                {(["teacher", "accountant", "helper", "superadmin"] as StaffRole[]).map((r) => <option key={r} value={r}>{r}</option>)}
+              <select
+                value={form.role}
+                onChange={(e) => { set("role", e.target.value); setSelectedSubjects([]); }}
+                className="input capitalize"
+              >
+                {(["teacher", "accountant", "helper", "superadmin"] as StaffRole[]).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Qualification</label><input value={form.qualification} onChange={(e) => set("qualification", e.target.value)} className="input" /></div>
-            <div><label className="label">Experience (yrs)</label><input type="number" value={form.experienceYears} onChange={(e) => set("experienceYears", e.target.value)} className="input" /></div>
+            <div>
+              <label className="label">Qualification</label>
+              <input value={form.qualification} onChange={(e) => set("qualification", e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Experience (yrs)</label>
+              <input type="number" min={0} value={form.experienceYears} onChange={(e) => set("experienceYears", e.target.value)} className="input" />
+            </div>
           </div>
+
+          {isTeacher && (
+            <div>
+              <label className="label flex items-center gap-1.5">
+                <BookOpen className="h-3.5 w-3.5" /> Subjects taught
+                {selectedSubjects.length > 0 && (
+                  <span className="ml-auto rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700">
+                    {selectedSubjects.length} selected
+                  </span>
+                )}
+              </label>
+              <SubjectsCheckList selected={selectedSubjects} onChange={setSelectedSubjects} />
+            </div>
+          )}
         </div>
-        <button onClick={save} disabled={!form.name || !form.email} className="btn-primary mt-5 w-full py-3"><BadgeCheck className="h-4 w-4" /> Add staff</button>
+        <button onClick={save} disabled={!form.name || !form.email} className="btn-primary mt-5 w-full py-3">
+          <BadgeCheck className="h-4 w-4" /> Add staff
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Staff Modal ──────────────────────────────────────────
+function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void }) {
+  const data = useData();
+  const [form, setForm] = useState({
+    name: staff.name,
+    phone: staff.phone,
+    qualification: staff.qualification,
+    experienceYears: String(staff.experienceYears),
+    status: staff.status,
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>(staff.subjects);
+
+  const isTeacher = staff.role === "teacher" || staff.role === "helper";
+
+  const save = () => {
+    if (!form.name) return;
+    data.updateStaff(staff.id, {
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      qualification: form.qualification.trim() || "—",
+      experienceYears: Number(form.experienceYears) || 0,
+      status: form.status as Staff["status"],
+      subjects: isTeacher ? selectedSubjects : [],
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="text-lg font-bold text-slate-900">Edit Staff</h3>
+        <p className="text-sm text-slate-500">
+          {staff.email} · <span className="capitalize">{staff.role}</span>
+        </p>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="label">Full name</label>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} className="input" autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Phone</label>
+              <input value={form.phone} onChange={(e) => set("phone", e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Status</label>
+              <select value={form.status} onChange={(e) => set("status", e.target.value)} className="input">
+                <option value="active">Active</option>
+                <option value="on-leave">On Leave</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Qualification</label>
+              <input value={form.qualification} onChange={(e) => set("qualification", e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Experience (yrs)</label>
+              <input type="number" min={0} value={form.experienceYears} onChange={(e) => set("experienceYears", e.target.value)} className="input" />
+            </div>
+          </div>
+
+          {isTeacher && (
+            <div>
+              <label className="label flex items-center gap-1.5">
+                <BookOpen className="h-3.5 w-3.5" /> Subjects taught
+                {selectedSubjects.length > 0 && (
+                  <span className="ml-auto rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700">
+                    {selectedSubjects.length} selected
+                  </span>
+                )}
+              </label>
+              <SubjectsCheckList selected={selectedSubjects} onChange={setSelectedSubjects} />
+            </div>
+          )}
+        </div>
+        <div className="mt-5 flex gap-3">
+          <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
+          <button onClick={save} disabled={!form.name} className="btn-primary flex-1 py-2.5">Save Changes</button>
+        </div>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ export default function TeacherHomework() {
   const { staff, activeClass } = useTeacher();
   const data = useData();
   const [title, setTitle] = useState("");
-  const [subject, setSubject] = useState("Phonics");
+  const [subject, setSubject] = useState(() => data.subjects[0]?.name ?? "");
   const [description, setDescription] = useState("");
   const [due, setDue] = useState("");
 
@@ -49,9 +49,18 @@ export default function TeacherHomework() {
             </div>
             <div>
               <label className="label">Subject</label>
-              <select value={subject} onChange={(e) => setSubject(e.target.value)} className="input">
-                {["Phonics", "Numbers", "Rhymes", "Story Time", "Art", "EVS", "Show & Tell"].map((s) => <option key={s}>{s}</option>)}
-              </select>
+              {data.subjects.length > 0 ? (
+                <select value={subject} onChange={(e) => setSubject(e.target.value)} className="input">
+                  {data.subjects.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              ) : (
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="e.g. Phonics (add subjects in Admin)"
+                  className="input"
+                />
+              )}
             </div>
           </div>
           <div>
