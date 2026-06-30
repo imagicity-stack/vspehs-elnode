@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
+import { auth, isFirebaseConfigured } from "@/lib/firebase";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
 import { Staff, StaffRole } from "@/lib/types";
 import {
   GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase, Edit2, BookOpen,
+  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck,
 } from "lucide-react";
+
+// Temporary password generated for a new staff login (admin shares it once).
+function genPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
 
 const roleTone: Record<StaffRole, "brand" | "amber" | "violet" | "slate"> = {
   teacher: "brand", accountant: "amber", superadmin: "violet", helper: "slate",
@@ -193,22 +201,77 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
   });
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<{
+    name: string; email: string; password: string;
+    provision: "demo" | "created" | "failed";
+  } | null>(null);
 
   const isTeacher = form.role === "teacher" || form.role === "helper";
 
-  const save = () => {
+  const save = async () => {
     if (!form.name || !form.email) return;
-    data.addStaff({
+    setBusy(true);
+    const password = genPassword();
+    const newStaff = data.addStaff({
       staffCode: `EMP-${String(data.staff.length + 1).padStart(3, "0")}`,
-      name: form.name, email: form.email, role: form.role, phone: form.phone,
+      name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, phone: form.phone,
       qualification: form.qualification || "—", experienceYears: Number(form.experienceYears) || 0,
       joiningDate: new Date().toISOString().slice(0, 10), dob: "1990-01-01", address: "—",
       assignedClassIds: [],
       subjects: isTeacher ? selectedSubjects : [],
       status: "active",
     });
-    onClose();
+
+    let provision: "demo" | "created" | "failed" = "demo";
+    if (isFirebaseConfigured && auth?.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        const res = await fetch("/api/staff/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ staff: newStaff, password }),
+        });
+        provision = res.ok ? "created" : "failed";
+      } catch {
+        provision = "failed";
+      }
+    }
+
+    setBusy(false);
+    setCreated({ name: newStaff.name, email: newStaff.email, password, provision });
   };
+
+  if (created) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+        <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+          <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+          <div className="text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></div>
+            <h3 className="text-lg font-bold text-slate-900">{created.name} added</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {created.provision === "created" && "Staff login created. Share these credentials securely."}
+              {created.provision === "failed" && "Staff saved, but the login could not be provisioned — check the server's Firebase Admin setup."}
+              {created.provision === "demo" && "Demo mode — saved to this browser only. Configure Firebase to create a real login."}
+            </p>
+          </div>
+          {created.provision === "created" && (
+            <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <CredRow icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={created.email} />
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Temporary password" value={created.password} />
+              <p className="flex items-start gap-1.5 pt-1 text-xs text-slate-400">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                The staff member should change this password after their first sign-in.
+              </p>
+            </div>
+          )}
+          <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -271,8 +334,33 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-        <button onClick={save} disabled={!form.name || !form.email} className="btn-primary mt-5 w-full py-3">
-          <BadgeCheck className="h-4 w-4" /> Add staff
+        <button onClick={save} disabled={!form.name || !form.email || busy} className="btn-primary mt-5 w-full py-3">
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Adding…</> : <><BadgeCheck className="h-4 w-4" /> Add staff</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Read-only credential row with copy-to-clipboard.
+function CredRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+      <div className="flex items-center gap-2 text-slate-500">
+        {icon}
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm font-semibold text-slate-800">{value}</span>
+        <button onClick={copy} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600" title="Copy">
+          {copied ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
         </button>
       </div>
     </div>

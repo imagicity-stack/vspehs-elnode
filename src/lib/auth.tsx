@@ -176,26 +176,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Resolves a Firebase Auth user to an AppUser. In production the
-// `appUsers/{uid}` Firestore document holds the role and linked IDs.
-// Here we derive the role from the email domain / allowlist as a fallback.
+// Resolves a Firebase Auth user to an AppUser. Role comes from the custom
+// claim set when the account was provisioned (staff via /api/staff/create,
+// parents via /api/students/create); the Super Admin allowlist and the parent
+// email domain are fallbacks for accounts created before claims existed.
 async function resolveFirebaseUser(fbUser: User): Promise<AppUser> {
   const email = fbUser.email ?? "";
   if (isSuperAdminEmail(email)) {
     return superAdminAppUser(email, fbUser.displayName ?? undefined, fbUser.photoURL ?? undefined);
   }
-  if (email.endsWith(`@${PARENT_EMAIL_DOMAIN}`) || email.includes("@parents.")) {
-    const admissionNo = email.split("@")[0];
+
+  // Authoritative role + linked ids from the token's custom claims.
+  let claims: Record<string, unknown> = {};
+  try {
+    claims = (await fbUser.getIdTokenResult()).claims;
+  } catch {
+    /* ignore — fall back to email heuristics below */
+  }
+  const claimRole = claims.role as Role | undefined;
+
+  if (claimRole === "parent" || email.endsWith(`@${PARENT_EMAIL_DOMAIN}`) || email.includes("@parents.")) {
     return {
       uid: fbUser.uid,
       role: "parent",
       displayName: fbUser.displayName ?? "Parent",
-      admissionNo,
-      studentIds: [],
+      admissionNo: (claims.admissionNo as string) ?? email.split("@")[0],
+      studentIds: claims.studentId ? [claims.studentId as string] : [],
       email,
     };
   }
-  // Default staff — role should be read from Firestore appUsers doc in production.
+
+  if (claimRole === "teacher" || claimRole === "accountant" || claimRole === "superadmin") {
+    return {
+      uid: fbUser.uid,
+      role: claimRole,
+      displayName: fbUser.displayName ?? "Staff",
+      email,
+      staffId: (claims.staffId as string) ?? fbUser.uid,
+    };
+  }
+
+  // Unprovisioned account — give the most limited staff portal as a safe default.
   return {
     uid: fbUser.uid,
     role: "teacher",

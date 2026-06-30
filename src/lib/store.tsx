@@ -120,7 +120,7 @@ interface DataContextValue extends DataState {
   // people
   addStudent: (s: Omit<Student, "id">) => void;
   updateStudent: (id: string, patch: Partial<Student>) => void;
-  addStaff: (s: Omit<Staff, "id">) => void;
+  addStaff: (s: Omit<Staff, "id">) => Staff;
   updateStaff: (id: string, patch: Partial<Staff>) => void;
   // subjects
   addSubject: (s: Omit<Subject, "id">) => void;
@@ -331,6 +331,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const doc = { ...st, id: uid("s") };
         setState((s) => ({ ...s, staff: [...s.staff, doc] }));
         writeDoc("staff", doc);
+        return doc;
       },
 
       updateStaff: (id, p) => {
