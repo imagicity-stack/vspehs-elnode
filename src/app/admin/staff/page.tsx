@@ -3,13 +3,30 @@
 import { useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
 import { Staff, StaffRole } from "@/lib/types";
 import {
   GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase, Edit2, BookOpen,
-  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck,
+  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck, Trash2,
 } from "lucide-react";
+
+// Calls a protected admin route with the caller's ID token. Returns ok/false.
+async function callAdmin(path: string, payload: unknown): Promise<boolean> {
+  if (!isFirebaseConfigured || !auth?.currentUser) return false;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // Temporary password generated for a new staff login (admin shares it once).
 function genPassword(): string {
@@ -29,6 +46,19 @@ export default function AdminStaff() {
 
   const pendingLeave = data.leaveRequests.filter((l) => l.status === "pending");
   const presentToday = data.staffAttendance.filter((a) => a.date === today && a.status !== "absent").length;
+
+  const removeStaff = async (s: Staff) => {
+    if (!confirm(`Delete ${s.name}? This permanently removes their login and record.`)) return;
+    data.deleteStaff(s.id);
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/staff/manage", { action: "delete", staffId: s.id, email: s.email });
+      ok
+        ? toast.success(`${s.name} and their login were removed.`)
+        : toast.error(`${s.name}'s record was removed, but the login may still exist — check Firebase Admin setup.`);
+    } else {
+      toast.success(`${s.name} removed.`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -122,13 +152,22 @@ export default function AdminStaff() {
                   </Td>
                   <Td><Badge tone={s.status === "active" ? "green" : s.status === "on-leave" ? "amber" : "slate"}>{s.status}</Badge></Td>
                   <Td>
-                    <button
-                      onClick={() => setEditStaff(s)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
-                      title="Edit staff"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setEditStaff(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                        title="Edit staff"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => removeStaff(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Delete staff"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </Td>
                 </tr>
               );
@@ -379,19 +418,36 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>(staff.subjects);
+  const [busy, setBusy] = useState(false);
 
   const isTeacher = staff.role === "teacher" || staff.role === "helper";
 
-  const save = () => {
+  const save = async () => {
     if (!form.name) return;
+    setBusy(true);
+    const status = form.status as Staff["status"];
     data.updateStaff(staff.id, {
       name: form.name.trim(),
       phone: form.phone.trim(),
       qualification: form.qualification.trim() || "—",
       experienceYears: Number(form.experienceYears) || 0,
-      status: form.status as Staff["status"],
+      status,
       subjects: isTeacher ? selectedSubjects : [],
     });
+
+    // Keep the login in step with the record: an inactive staff member can't sign in.
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/staff/manage", {
+        action: "update", staffId: staff.id, email: staff.email,
+        role: staff.role, name: form.name.trim(), disabled: status === "inactive",
+      });
+      if (ok && status === "inactive") toast.info(`${form.name}'s login is now disabled.`);
+      else if (ok) toast.success(`${form.name} updated.`);
+      else toast.error(`${form.name}'s profile was saved, but the login couldn't be synced.`);
+    } else {
+      toast.success(`${form.name} updated.`);
+    }
+    setBusy(false);
     onClose();
   };
 
@@ -452,7 +508,9 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
         </div>
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
-          <button onClick={save} disabled={!form.name} className="btn-primary flex-1 py-2.5">Save Changes</button>
+          <button onClick={save} disabled={!form.name || busy} className="btn-primary flex-1 py-2.5">
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : "Save Changes"}
+          </button>
         </div>
       </div>
     </div>

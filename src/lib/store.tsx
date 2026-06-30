@@ -17,6 +17,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, isDemoMode } from "./firebase";
 import { fetchCollection, upsertDoc, removeDoc } from "./firestore";
+import { toast } from "@/components/Toast";
 import {
   AttendanceRecord, Circular, SchoolClass, Concession, DailyUpdate, Exam,
   ExamResult, FeeHead, Homework, Invoice, LeaveRequest, Payment, PaymentMethod,
@@ -120,8 +121,10 @@ interface DataContextValue extends DataState {
   // people
   addStudent: (s: Omit<Student, "id">) => void;
   updateStudent: (id: string, patch: Partial<Student>) => void;
+  deleteStudent: (id: string) => void;
   addStaff: (s: Omit<Staff, "id">) => Staff;
   updateStaff: (id: string, patch: Partial<Staff>) => void;
+  deleteStaff: (id: string) => void;
   // subjects
   addSubject: (s: Omit<Subject, "id">) => void;
   updateSubject: (id: string, patch: Partial<Subject>) => void;
@@ -191,15 +194,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // means passing { id, ...patch } applies a partial update.
     const writeDoc = <T extends { id: string }>(name: keyof DataState, v: T) => {
       if (isDemoMode) return;
-      upsertDoc(String(name), v).catch((e) =>
-        console.error(`[firestore] upsert ${String(name)}/${v.id} failed`, e),
-      );
+      upsertDoc(String(name), v).catch((e) => {
+        console.error(`[firestore] upsert ${String(name)}/${v.id} failed`, e);
+        toast.error(`Couldn't save changes to ${String(name)}. ${e?.message ?? ""}`.trim());
+      });
     };
     const eraseDoc = (name: keyof DataState, id: string) => {
       if (isDemoMode) return;
-      removeDoc(String(name), id).catch((e) =>
-        console.error(`[firestore] remove ${String(name)}/${id} failed`, e),
-      );
+      removeDoc(String(name), id).catch((e) => {
+        console.error(`[firestore] remove ${String(name)}/${id} failed`, e);
+        toast.error(`Couldn't delete from ${String(name)}. ${e?.message ?? ""}`.trim());
+      });
     };
 
     return {
@@ -327,6 +332,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         writeDoc("students", { id, ...p });
       },
 
+      deleteStudent: (id) => {
+        setState((s) => ({ ...s, students: s.students.filter((st) => st.id !== id) }));
+        eraseDoc("students", id);
+      },
+
       addStaff: (st) => {
         const doc = { ...st, id: uid("s") };
         setState((s) => ({ ...s, staff: [...s.staff, doc] }));
@@ -340,6 +350,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           staff: s.staff.map((st) => (st.id === id ? { ...st, ...p } : st)),
         }));
         writeDoc("staff", { id, ...p });
+      },
+
+      deleteStaff: (id) => {
+        // Cascade: clear this staff as class teacher on any class they led.
+        const orphanedClasses = state.classes.filter((c) => c.classTeacherId === id);
+        setState((s) => ({
+          ...s,
+          staff: s.staff.filter((st) => st.id !== id),
+          classes: s.classes.map((c) => (c.classTeacherId === id ? { ...c, classTeacherId: "" } : c)),
+        }));
+        eraseDoc("staff", id);
+        orphanedClasses.forEach((c) => writeDoc("classes", { id: c.id, classTeacherId: "" }));
       },
 
       addSubject: (sub) => {

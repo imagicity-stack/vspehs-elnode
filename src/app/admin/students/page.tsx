@@ -3,13 +3,30 @@
 import { useRef, useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
+import { toast } from "@/components/Toast";
 import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
 import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
-  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2,
+  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2, Trash2,
 } from "lucide-react";
+
+// Calls a protected admin route with the caller's ID token. Returns ok/false.
+async function callAdmin(path: string, payload: unknown): Promise<boolean> {
+  if (!isFirebaseConfigured || !auth?.currentUser) return false;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // ── CSV template ──────────────────────────────────────────────
 const CSV_HEADERS = [
@@ -89,6 +106,21 @@ export default function AdminStudents() {
         s.admissionNo.includes(q),
     )
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
+
+  const removeStudent = async (s: Student) => {
+    if (!confirm(`Delete ${fullName(s)} (${s.admissionNo})? This permanently removes the student and the parent login.`)) return;
+    data.deleteStudent(s.id);
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/students/manage", {
+        action: "delete", studentId: s.id, admissionNo: s.admissionNo,
+      });
+      ok
+        ? toast.success(`${fullName(s)} and the parent login were removed.`)
+        : toast.error(`${fullName(s)}'s record was removed, but the parent login may still exist — check Firebase Admin setup.`);
+    } else {
+      toast.success(`${fullName(s)} removed.`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -178,13 +210,22 @@ export default function AdminStudents() {
                     <Td className="text-slate-500">{s.primaryContact}</Td>
                     <Td><Badge tone={s.status === "active" ? "green" : "slate"}>{s.status}</Badge></Td>
                     <Td>
-                      <button
-                        onClick={() => setEditStudent(s)}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
-                        title="Edit student"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditStudent(s)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                          title="Edit student"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => removeStudent(s)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Delete student"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </Td>
                   </tr>
                 );
