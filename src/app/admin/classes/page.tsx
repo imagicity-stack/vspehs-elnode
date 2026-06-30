@@ -159,12 +159,8 @@ export default function AdminClasses() {
         </div>
       )}
 
-      {(addOpen || editClass) && (
-        <ClassModal
-          cls={editClass ?? undefined}
-          onClose={() => { setAddOpen(false); setEditClass(null); }}
-        />
-      )}
+      {addOpen && <AddClassModal onClose={() => setAddOpen(false)} />}
+      {editClass && <ClassModal cls={editClass} onClose={() => setEditClass(null)} />}
 
       {assignClass && (
         <AssignTeacherModal
@@ -176,15 +172,145 @@ export default function AdminClasses() {
   );
 }
 
-// ── Add / Edit Class modal ────────────────────────────────────
-function ClassModal({ cls, onClose }: { cls?: SchoolClass; onClose: () => void }) {
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
+// ── Add Class modal (multi-section) ───────────────────────────
+// Pick a level + how many sections + capacity per section, and the sections
+// (A, B, C…) are created automatically, continuing from whatever already
+// exists for that level so they never collide.
+function AddClassModal({ onClose }: { onClose: () => void }) {
   const data = useData();
   const [form, setForm] = useState({
-    name: cls?.name ?? "",
-    level: cls?.level ?? "Playgroup" as SchoolClass["level"],
-    section: cls?.section ?? "A",
-    room: cls?.room ?? "",
-    capacity: String(cls?.capacity ?? 20),
+    level: "Playgroup" as SchoolClass["level"],
+    sections: "1",
+    capacity: "20",
+    roomBase: "",
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+
+  const count = Math.max(1, Math.min(26, Number(form.sections) || 1));
+  const capacity = Number(form.capacity) || 0;
+
+  // Sections already used for this level — continue lettering after them.
+  const usedLetters = [...new Set(
+    data.classes.filter((c) => c.level === form.level).map((c) => c.section.trim().toUpperCase()),
+  )].sort();
+  const newLetters = ALPHABET.filter((l) => !usedLetters.includes(l)).slice(0, count);
+  const newNames = newLetters.map((l) => `${form.level} ${l}`);
+
+  const valid = capacity > 0 && newLetters.length > 0;
+
+  const save = () => {
+    if (!valid) return;
+    setBusy(true);
+    newLetters.forEach((letter) => {
+      data.addClass({
+        name: `${form.level} ${letter}`,
+        level: form.level,
+        section: letter,
+        room: form.roomBase.trim() ? `${form.roomBase.trim()} ${letter}` : `${form.level} ${letter}`,
+        capacity,
+        classTeacherId: "",
+      });
+    });
+    setBusy(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="text-lg font-bold text-slate-900">Add Class</h3>
+        <p className="text-sm text-slate-500">Sections are created and lettered automatically.</p>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="label">Level</label>
+            <select value={form.level} onChange={(e) => set("level", e.target.value)} className="input">
+              {LEVELS.map((l) => <option key={l}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Number of sections</label>
+            <input
+              type="number" min={1} max={26}
+              value={form.sections}
+              onChange={(e) => set("sections", e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label">Capacity / section</label>
+            <input
+              type="number" min={1} max={60}
+              value={form.capacity}
+              onChange={(e) => set("capacity", e.target.value)}
+              className="input"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Room label (optional)</label>
+            <input
+              value={form.roomBase}
+              onChange={(e) => set("roomBase", e.target.value)}
+              placeholder="e.g. Sunflower — becomes “Sunflower A”, “Sunflower B”"
+              className="input"
+            />
+          </div>
+        </div>
+
+        {/* Preview */}
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          {usedLetters.length > 0 && (
+            <p className="mb-2 text-xs text-slate-500">
+              {form.level} already has section{usedLetters.length !== 1 ? "s" : ""}{" "}
+              <span className="font-semibold text-slate-700">{usedLetters.join(", ")}</span>.
+            </p>
+          )}
+          {newNames.length > 0 ? (
+            <>
+              <p className="mb-1.5 text-xs font-semibold text-slate-600">
+                Will create {newNames.length} section{newNames.length !== 1 ? "s" : ""} ({capacity || 0} seats each):
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {newNames.map((n) => (
+                  <span key={n} className="rounded bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">{n}</span>
+                ))}
+              </div>
+              {newLetters.length < count && (
+                <p className="mt-2 text-xs text-amber-600">Only {newLetters.length} section letters remain for this level.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-amber-600">All 26 section letters are already used for {form.level}.</p>
+          )}
+        </div>
+
+        <div className="mt-5 flex gap-3">
+          <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
+          <button onClick={save} disabled={!valid || busy} className="btn-primary flex-1 py-2.5">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : `Create ${newNames.length || ""} ${newNames.length === 1 ? "Class" : "Classes"}`.trim()}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Class modal (single section) ─────────────────────────
+function ClassModal({ cls, onClose }: { cls: SchoolClass; onClose: () => void }) {
+  const data = useData();
+  const [form, setForm] = useState({
+    name: cls.name,
+    level: cls.level,
+    section: cls.section,
+    room: cls.room,
+    capacity: String(cls.capacity),
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [busy, setBusy] = useState(false);
@@ -194,19 +320,13 @@ function ClassModal({ cls, onClose }: { cls?: SchoolClass; onClose: () => void }
   const save = () => {
     if (!valid) return;
     setBusy(true);
-    const payload = {
+    data.updateClass(cls.id, {
       name: form.name.trim(),
       level: form.level,
       section: form.section.trim() || "A",
       room: form.room.trim(),
       capacity: Number(form.capacity),
-      classTeacherId: cls?.classTeacherId ?? "",
-    };
-    if (cls) {
-      data.updateClass(cls.id, payload);
-    } else {
-      data.addClass(payload);
-    }
+    });
     setBusy(false);
     onClose();
   };
@@ -221,10 +341,8 @@ function ClassModal({ cls, onClose }: { cls?: SchoolClass; onClose: () => void }
         >
           <X className="h-5 w-5" />
         </button>
-        <h3 className="text-lg font-bold text-slate-900">{cls ? "Edit Class" : "Add Class"}</h3>
-        <p className="text-sm text-slate-500">
-          {cls ? "Update the class details." : "Create a new class section."}
-        </p>
+        <h3 className="text-lg font-bold text-slate-900">Edit Class</h3>
+        <p className="text-sm text-slate-500">Update the class details.</p>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <div className="col-span-2">
@@ -276,7 +394,7 @@ function ClassModal({ cls, onClose }: { cls?: SchoolClass; onClose: () => void }
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
           <button onClick={save} disabled={!valid || busy} className="btn-primary flex-1 py-2.5">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : cls ? "Save Changes" : "Create Class"}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
           </button>
         </div>
       </div>
