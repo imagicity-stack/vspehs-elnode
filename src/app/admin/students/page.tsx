@@ -8,7 +8,7 @@ import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
-  Loader2, Copy, ShieldCheck, Upload, Download, FileText,
+  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2,
 } from "lucide-react";
 
 // ── CSV template ──────────────────────────────────────────────
@@ -78,6 +78,7 @@ export default function AdminStudents() {
   const [classId, setClassId] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [editStudent, setEditStudent] = useState<Student | null>(null);
 
   const rows = data.students
     .filter((s) => classId === "all" || s.classId === classId)
@@ -155,7 +156,7 @@ export default function AdminStudents() {
             <thead>
               <tr className="border-b border-slate-100">
                 <Th>Student</Th><Th>Admission</Th><Th>Class</Th><Th>Age</Th>
-                <Th>Blood</Th><Th>Allergies</Th><Th>Contact</Th><Th>Status</Th>
+                <Th>Blood</Th><Th>Allergies</Th><Th>Contact</Th><Th>Status</Th><Th></Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -176,6 +177,15 @@ export default function AdminStudents() {
                     <Td>{s.allergies.length ? <Badge tone="red">{s.allergies.join(", ")}</Badge> : <span className="text-slate-300">—</span>}</Td>
                     <Td className="text-slate-500">{s.primaryContact}</Td>
                     <Td><Badge tone={s.status === "active" ? "green" : "slate"}>{s.status}</Badge></Td>
+                    <Td>
+                      <button
+                        onClick={() => setEditStudent(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                        title="Edit student"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                    </Td>
                   </tr>
                 );
               })}
@@ -186,6 +196,7 @@ export default function AdminStudents() {
 
       {addOpen && <AddStudentModal onClose={() => setAddOpen(false)} />}
       {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
+      {editStudent && <EditStudentModal student={editStudent} onClose={() => setEditStudent(null)} />}
     </div>
   );
 }
@@ -348,6 +359,147 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Student Modal ────────────────────────────────────────
+function EditStudentModal({ student, onClose }: { student: Student; onClose: () => void }) {
+  const data = useData();
+  const [form, setForm] = useState({
+    firstName: student.firstName,
+    lastName: student.lastName,
+    gender: student.gender,
+    dob: student.dob,
+    bloodGroup: student.bloodGroup,
+    classId: student.classId,
+    fatherName: student.fatherName,
+    motherName: student.motherName,
+    primaryContact: student.primaryContact,
+    address: student.address || "",
+    transportRoute: student.transportRoute || "",
+    allergies: student.allergies.join(", "),
+    medicalNotes: student.medicalNotes || "",
+    status: student.status,
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+
+  const save = () => {
+    if (!form.firstName) return;
+    setBusy(true);
+    data.updateStudent(student.id, {
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      gender: form.gender as Student["gender"],
+      dob: form.dob,
+      bloodGroup: form.bloodGroup as BloodGroup,
+      classId: form.classId,
+      fatherName: form.fatherName.trim(),
+      motherName: form.motherName.trim(),
+      primaryContact: form.primaryContact.trim(),
+      address: form.address.trim() || "—",
+      transportRoute: form.transportRoute.trim() || "Self",
+      allergies: form.allergies ? form.allergies.split(",").map((a) => a.trim()).filter(Boolean) : [],
+      medicalNotes: form.medicalNotes.trim() || undefined,
+      status: form.status as Student["status"],
+    });
+    setBusy(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="text-lg font-bold text-slate-900">Edit Student</h3>
+        <p className="text-sm text-slate-500">
+          Admission no. <span className="font-mono font-semibold text-slate-700">{student.admissionNo}</span>
+          {" "}— cannot be changed (used for parent login).
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <Field label="First name">
+            <input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" />
+          </Field>
+          <Field label="Last name">
+            <input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" />
+          </Field>
+          <Field label="Class">
+            <select value={form.classId} onChange={(e) => set("classId", e.target.value)} className="input">
+              {data.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Status">
+            <select value={form.status} onChange={(e) => set("status", e.target.value)} className="input">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+          <Field label="Gender">
+            <select value={form.gender} onChange={(e) => set("gender", e.target.value)} className="input">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </Field>
+          <Field label="Date of birth">
+            <input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} className="input" />
+          </Field>
+          <Field label="Blood group">
+            <select value={form.bloodGroup} onChange={(e) => set("bloodGroup", e.target.value)} className="input">
+              {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"].map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Primary contact">
+            <input value={form.primaryContact} onChange={(e) => set("primaryContact", e.target.value)} className="input" />
+          </Field>
+          <Field label="Father's name">
+            <input value={form.fatherName} onChange={(e) => set("fatherName", e.target.value)} className="input" />
+          </Field>
+          <Field label="Mother's name">
+            <input value={form.motherName} onChange={(e) => set("motherName", e.target.value)} className="input" />
+          </Field>
+          <div className="col-span-2">
+            <Field label="Address">
+              <input value={form.address} onChange={(e) => set("address", e.target.value)} className="input" />
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="Transport route">
+              <input value={form.transportRoute} onChange={(e) => set("transportRoute", e.target.value)} placeholder="Self / Route 1 — Area" className="input" />
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="Allergies (comma separated)">
+              <input value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="Peanuts, Dairy" className="input" />
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="Medical notes">
+              <textarea
+                value={form.medicalNotes}
+                onChange={(e) => set("medicalNotes", e.target.value)}
+                rows={2}
+                placeholder="Any medical conditions, medications, or special instructions…"
+                className="input resize-none"
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-3">
+          <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
+          <button onClick={save} disabled={!form.firstName || busy} className="btn-primary flex-1 py-2.5">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+          </button>
+        </div>
       </div>
     </div>
   );

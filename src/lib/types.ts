@@ -4,6 +4,14 @@
 
 export type Role = "parent" | "teacher" | "accountant" | "superadmin";
 
+export interface Subject {
+  id: string;
+  /** Short uppercase code, e.g. "PHO", "NUM" */
+  code: string;
+  name: string;
+  description?: string;
+}
+
 export type BloodGroup =
   | "A+" | "A-" | "B+" | "B-" | "AB+" | "AB-" | "O+" | "O-" | "Unknown";
 
