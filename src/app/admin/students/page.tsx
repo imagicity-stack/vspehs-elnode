@@ -128,6 +128,20 @@ export default function AdminStudents() {
     )
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
 
+  const [resetCred, setResetCred] = useState<{ name: string; admissionNo: string; pin: string } | null>(null);
+
+  const resetStudentPin = async (s: Student) => {
+    if (!isFirebaseConfigured) {
+      toast.info("PIN reset needs Firebase — not available in demo mode.");
+      return;
+    }
+    if (!confirm(`Reset the parent PIN for ${fullName(s)} (${s.admissionNo})?`)) return;
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const ok = await callAdmin("/api/students/manage", { action: "reset", studentId: s.id, admissionNo: s.admissionNo, pin });
+    if (ok) setResetCred({ name: fullName(s), admissionNo: s.admissionNo, pin });
+    else toast.error(`Couldn't reset the PIN for ${fullName(s)} — check the parent login exists and Firebase Admin setup.`);
+  };
+
   const removeStudent = async (s: Student) => {
     if (!confirm(`Delete ${fullName(s)} (${s.admissionNo})? This permanently removes the student and the parent login.`)) return;
     data.deleteStudent(s.id);
@@ -242,6 +256,13 @@ export default function AdminStudents() {
                           <Edit2 className="h-4 w-4" />
                         </button>
                         <button
+                          onClick={() => resetStudentPin(s)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                          title="Reset parent PIN"
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </button>
+                        <button
                           onClick={() => removeStudent(s)}
                           className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                           title="Delete student"
@@ -261,6 +282,24 @@ export default function AdminStudents() {
       {addOpen && <AddStudentModal onClose={() => setAddOpen(false)} />}
       {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
       {editStudent && <EditStudentModal student={editStudent} onClose={() => setEditStudent(null)} />}
+      {resetCred && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setResetCred(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+            <button onClick={() => setResetCred(null)} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600"><KeyRound className="h-7 w-7" /></div>
+              <h3 className="text-lg font-bold text-slate-900">Parent PIN reset</h3>
+              <p className="mt-1 text-sm text-slate-500">Share the new PIN for {resetCred.name} securely.</p>
+            </div>
+            <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Admission no. (login)" value={resetCred.admissionNo} />
+              <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="New temporary PIN" value={resetCred.pin} />
+            </div>
+            <button onClick={() => setResetCred(null)} className="btn-primary mt-5 w-full py-3">Done</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

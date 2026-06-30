@@ -8,9 +8,10 @@ import { useData } from "@/lib/store";
 import { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui";
+import { toast } from "@/components/Toast";
 import { isDemoMode } from "@/lib/firebase";
 import {
-  LogOut, Menu, X, GraduationCap, ChevronDown, BellRing,
+  LogOut, Menu, X, GraduationCap, ChevronDown, BellRing, KeyRound, Loader2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -29,12 +30,13 @@ const roleLabel: Record<Role, string> = {
 export function PortalShell({
   role, nav, children,
 }: { role: Role; nav: NavItem[]; children: React.ReactNode }) {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, canChangePassword } = useAuth();
   const { loading: dataLoading } = useData();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
 
   React.useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -148,6 +150,14 @@ export function PortalShell({
                       <p className="text-sm font-semibold text-slate-800">{user.displayName}</p>
                       <p className="text-xs text-slate-400">{user.email ?? `Admission #${user.admissionNo}`}</p>
                     </div>
+                    {canChangePassword && (
+                      <button
+                        onClick={() => { setMenu(false); setPwOpen(true); }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <KeyRound className="h-4 w-4" /> Change password
+                      </button>
+                    )}
                     <button
                       onClick={async () => { await logout(); router.replace("/login"); }}
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
@@ -162,6 +172,72 @@ export function PortalShell({
         </header>
 
         <main className="mx-auto max-w-7xl animate-fade-in px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      </div>
+
+      {pwOpen && <ChangePasswordModal isParent={role === "parent"} onClose={() => setPwOpen(false)} />}
+    </div>
+  );
+}
+
+// ── Change password modal ─────────────────────────────────────
+function ChangePasswordModal({ isParent, onClose }: { isParent: boolean; onClose: () => void }) {
+  const { changePassword } = useAuth();
+  const noun = isParent ? "PIN" : "password";
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const valid = current.length > 0 && next.length >= 6 && next === confirm;
+
+  const submit = async () => {
+    setErr("");
+    if (next !== confirm) { setErr(`New ${noun}s don't match.`); return; }
+    if (next.length < 6) { setErr(`New ${noun} must be at least 6 characters.`); return; }
+    setBusy(true);
+    try {
+      await changePassword(current, next);
+      toast.success(`Your ${noun} has been changed.`);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : `Couldn't change ${noun}.`);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-soft">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="text-lg font-bold text-slate-900">Change {noun}</h3>
+        <p className="text-sm text-slate-500">Enter your current {noun} and choose a new one.</p>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="label">Current {noun}</label>
+            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} className="input" autoFocus />
+          </div>
+          <div>
+            <label className="label">New {noun}</label>
+            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} className="input" placeholder="At least 6 characters" />
+          </div>
+          <div>
+            <label className="label">Confirm new {noun}</label>
+            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="input" />
+          </div>
+          {err && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
+        </div>
+
+        <div className="mt-5 flex gap-3">
+          <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
+          <button onClick={submit} disabled={!valid || busy} className="btn-primary flex-1 py-2.5">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : `Update ${noun}`}
+          </button>
+        </div>
       </div>
     </div>
   );

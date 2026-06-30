@@ -15,7 +15,8 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
-  onAuthStateChanged, type User,
+  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
+  type User,
 } from "firebase/auth";
 import {
   auth, isDemoMode, admissionNoToEmail, isSuperAdminEmail, SUPERADMIN_EMAILS,
@@ -39,6 +40,9 @@ interface AuthContextValue {
   loginStaff: (email: string, password: string) => Promise<AppUser>;
   loginWithGoogle: () => Promise<AppUser>;
   demoLoginAs: (role: Role) => AppUser;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /** True when the signed-in account has an email/password login it can change. */
+  canChangePassword: boolean;
   logout: () => Promise<void>;
 }
 
@@ -164,13 +168,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return u;
   };
 
+  // Self-service password change. Re-authenticates with the current password
+  // first (Firebase requires a recent login to change it), then updates.
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+    if (isDemoMode || !auth?.currentUser) {
+      throw new Error("Password change requires a signed-in Firebase account.");
+    }
+    const fbUser = auth.currentUser;
+    const email = fbUser.email;
+    const hasPasswordLogin = fbUser.providerData.some((p) => p.providerId === "password");
+    if (!email || !hasPasswordLogin) {
+      throw new Error("This account signs in with Google, so its password is managed there.");
+    }
+    if (newPassword.length < 6) {
+      throw new Error("New password must be at least 6 characters.");
+    }
+    try {
+      await reauthenticateWithCredential(fbUser, EmailAuthProvider.credential(email, currentPassword));
+    } catch {
+      throw new Error("Your current password is incorrect.");
+    }
+    await updatePassword(fbUser, newPassword);
+  };
+
+  const canChangePassword =
+    !isDemoMode && !!auth?.currentUser?.providerData.some((p) => p.providerId === "password");
+
   const logout = async () => {
     if (!isDemoMode && auth) await signOut(auth);
     persist(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginParent, loginStaff, loginWithGoogle, demoLoginAs, logout }}>
+    <AuthContext.Provider value={{
+      user, loading, loginParent, loginStaff, loginWithGoogle, demoLoginAs,
+      changePassword, canChangePassword, logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );
