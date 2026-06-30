@@ -29,19 +29,21 @@ async function callAdmin(path: string, payload: unknown): Promise<boolean> {
 }
 
 // ── CSV template ──────────────────────────────────────────────
+// The `class` column takes the class NAME (e.g. "Nursery A") — not the
+// internal id — and is resolved to a class id on import.
 const CSV_HEADERS = [
   "firstName", "lastName", "admissionNo", "gender",
-  "dob", "bloodGroup", "classId",
+  "dob", "bloodGroup", "class",
   "fatherName", "motherName", "primaryContact", "allergies",
 ];
-const CSV_EXAMPLE = [
-  "Aarav", "Mehta", "2025001", "male",
-  "2022-04-18", "B+", "cls-abc123",
-  "Rohit Mehta", "Sneha Mehta", "+91 98765 40001", "Peanuts",
-];
 
-function downloadTemplate() {
-  const csv = [CSV_HEADERS, CSV_EXAMPLE].map((r) => r.join(",")).join("\n");
+function downloadTemplate(sampleClass?: string) {
+  const example = [
+    "Aarav", "Mehta", "2025001", "male",
+    "2022-04-18", "B+", sampleClass || "Nursery A",
+    "Rohit Mehta", "Sneha Mehta", "+91 98765 40001", "Peanuts",
+  ];
+  const csv = [CSV_HEADERS, example].map((r) => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -54,29 +56,44 @@ function downloadTemplate() {
 interface ParsedRow {
   firstName: string; lastName: string; admissionNo: string;
   gender: Student["gender"]; dob: string; bloodGroup: BloodGroup;
-  classId: string; fatherName: string; motherName: string;
+  className: string; classId: string; fatherName: string; motherName: string;
   primaryContact: string; allergies: string[];
   _error?: string;
 }
 
-function parseCSV(text: string, existing: Set<string>): ParsedRow[] {
+function parseCSV(
+  text: string,
+  existing: Set<string>,
+  classes: { id: string; name: string }[],
+): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
   const seen = new Set<string>(); // admission numbers seen earlier in this file
+  // Resolve a class by name (case-insensitive); also accept a raw id for
+  // backwards compatibility with older templates.
+  const byName = new Map(classes.map((c) => [c.name.trim().toLowerCase(), c.id]));
+  const ids = new Set(classes.map((c) => c.id));
   return lines.slice(1).map((line, i) => {
     const vals = line.split(",").map((v) => v.trim());
     const get = (key: string) => vals[headers.indexOf(key)] ?? "";
     const admNo = get("admissionno");
+    const classRaw = get("class") || get("classname") || get("classid");
     const fail = (msg: string): ParsedRow => ({
       firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
-      dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
+      dob: "", bloodGroup: "Unknown" as BloodGroup, className: classRaw, classId: "", fatherName: "",
       motherName: "", primaryContact: "", allergies: [],
       _error: `Row ${i + 2}: ${msg}`,
     });
     if (!/^\d{7}$/.test(admNo)) return fail(`Invalid 7-digit admission number "${admNo}"`);
     if (existing.has(admNo)) return fail(`Admission number ${admNo} is already enrolled`);
     if (seen.has(admNo)) return fail(`Admission number ${admNo} is duplicated in this file`);
+    if (!classRaw) return fail("Class is required");
+    const classId = byName.get(classRaw.toLowerCase()) ?? (ids.has(classRaw) ? classRaw : "");
+    if (!classId) {
+      const available = classes.map((c) => c.name).join(", ") || "none — add classes first";
+      return fail(`Unknown class "${classRaw}". Available: ${available}`);
+    }
     seen.add(admNo);
     return {
       firstName: get("firstname"), lastName: get("lastname"),
@@ -84,7 +101,8 @@ function parseCSV(text: string, existing: Set<string>): ParsedRow[] {
       gender: (get("gender") as Student["gender"]) || "male",
       dob: get("dob") || "2022-01-01",
       bloodGroup: (get("bloodgroup") as BloodGroup) || "Unknown",
-      classId: get("classid"),
+      className: classes.find((c) => c.id === classId)?.name ?? classRaw,
+      classId,
       fatherName: get("fathername"), motherName: get("mothername"),
       primaryContact: get("primarycontact"),
       allergies: get("allergies") ? get("allergies").split(";").map((a) => a.trim()).filter(Boolean) : [],
@@ -261,7 +279,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
     if (!file) return;
     const existing = new Set(data.students.map((s) => s.admissionNo));
     const reader = new FileReader();
-    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string, existing));
+    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string, existing, data.classes));
     reader.readAsText(file);
   };
 
@@ -375,24 +393,25 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
               <p className="text-sm font-semibold text-slate-800">Step 1 — Download template</p>
               <p className="mt-0.5 text-xs text-slate-500">CSV with all required column headers.</p>
             </div>
-            <button onClick={downloadTemplate} className="btn-ghost shrink-0">
+            <button onClick={() => downloadTemplate(data.classes[0]?.name)} className="btn-ghost shrink-0">
               <Download className="h-4 w-4" /> Template CSV
             </button>
           </div>
           {data.classes.length > 0 && (
             <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="mb-1.5 text-xs font-semibold text-slate-600">Class IDs for the <code>classId</code> column:</p>
+              <p className="mb-1.5 text-xs font-semibold text-slate-600">Type one of these class names in the <code>class</code> column:</p>
               <div className="flex flex-wrap gap-2">
                 {data.classes.map((c) => (
-                  <span key={c.id} className="rounded bg-brand-50 px-2 py-0.5 font-mono text-xs text-brand-700">
-                    {c.id} = {c.name}
+                  <span key={c.id} className="rounded bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
+                    {c.name}
                   </span>
                 ))}
               </div>
             </div>
           )}
           <div className="mt-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
-            <strong>Tips:</strong> Use <code>;</code> to separate multiple allergies (e.g. <code>Peanuts;Dairy</code>).
+            <strong>Tips:</strong> The <code>class</code> column takes the class name (e.g. <code>Nursery A</code>).
+            Use <code>;</code> to separate multiple allergies (e.g. <code>Peanuts;Dairy</code>).
             Date: <code>YYYY-MM-DD</code>. Gender: <code>male</code> / <code>female</code> / <code>other</code>.
           </div>
         </div>
@@ -430,7 +449,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-slate-50">
                     <tr>
-                      {["Name", "Admission No", "Class ID", "Gender", "DOB", "Blood Group"].map((h) => (
+                      {["Name", "Admission No", "Class", "Gender", "DOB", "Blood Group"].map((h) => (
                         <th key={h} className="px-3 py-2 text-left font-semibold text-slate-500">{h}</th>
                       ))}
                     </tr>
@@ -440,7 +459,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                       <tr key={i} className="hover:bg-slate-50">
                         <td className="px-3 py-2 font-medium text-slate-800">{r.firstName} {r.lastName}</td>
                         <td className="px-3 py-2 font-mono text-slate-600">{r.admissionNo}</td>
-                        <td className="px-3 py-2 text-slate-600">{r.classId}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.className}</td>
                         <td className="px-3 py-2 capitalize text-slate-600">{r.gender}</td>
                         <td className="px-3 py-2 text-slate-600">{r.dob}</td>
                         <td className="px-3 py-2 text-slate-600">{r.bloodGroup}</td>
