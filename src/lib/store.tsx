@@ -92,6 +92,10 @@ interface DataContextValue extends DataState {
   }) => Payment;
   addConcession: (c: Omit<Concession, "id">) => void;
   generateInvoice: (inv: Omit<Invoice, "id">) => void;
+  // fee heads
+  addFeeHead: (f: Omit<FeeHead, "id">) => void;
+  updateFeeHead: (id: string, patch: Partial<FeeHead>) => void;
+  deleteFeeHead: (id: string) => void;
   // tasks / leave
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, "id">) => void;
@@ -299,6 +303,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const doc = { ...inv, id: uid("inv") };
         setState((s) => ({ ...s, invoices: [doc, ...s.invoices] }));
         writeDoc("invoices", doc);
+      },
+
+      addFeeHead: (f) => {
+        const doc = { ...f, id: uid("fh") };
+        setState((s) => ({ ...s, feeHeads: [...s.feeHeads, doc] }));
+        writeDoc("feeHeads", doc);
+      },
+
+      updateFeeHead: (id, p) => {
+        setState((s) => ({
+          ...s,
+          feeHeads: s.feeHeads.map((f) => (f.id === id ? { ...f, ...p } : f)),
+        }));
+        writeDoc("feeHeads", { id, ...p });
+      },
+
+      deleteFeeHead: (id) => {
+        setState((s) => ({ ...s, feeHeads: s.feeHeads.filter((f) => f.id !== id) }));
+        eraseDoc("feeHeads", id);
       },
 
       toggleTask: (id) => {

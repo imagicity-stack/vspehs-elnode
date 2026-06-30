@@ -4,9 +4,10 @@ import { useState } from "react";
 import { useData } from "@/lib/store";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, EmptyState } from "@/components/ui";
 import { CollectModal } from "../CollectModal";
+import { RaiseFeesModal } from "../RaiseFeesModal";
 import { inr, fullName, formatDate } from "@/lib/utils";
 import { Invoice, InvoiceStatus } from "@/lib/types";
-import { FileText, Search } from "lucide-react";
+import { FileText, Search, CalendarPlus } from "lucide-react";
 
 const statusTone: Record<InvoiceStatus, "green" | "amber" | "red" | "sky"> = {
   paid: "green", partial: "sky", pending: "amber", overdue: "red",
@@ -18,6 +19,7 @@ export default function AccountantInvoices() {
   const [filter, setFilter] = useState<InvoiceStatus | "all">("all");
   const [q, setQ] = useState("");
   const [collect, setCollect] = useState<Invoice | null>(null);
+  const [raiseOpen, setRaiseOpen] = useState(false);
 
   const rows = data.invoices
     .filter((i) => filter === "all" || i.status === filter)
@@ -30,9 +32,14 @@ export default function AccountantInvoices() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Invoices</h1>
-        <p className="mt-1 text-sm text-slate-500">All fee invoices across the school.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Invoices</h1>
+          <p className="mt-1 text-sm text-slate-500">All fee invoices across the school.</p>
+        </div>
+        <button onClick={() => setRaiseOpen(true)} className="btn-primary shrink-0">
+          <CalendarPlus className="h-4 w-4" /> Raise Monthly Fees
+        </button>
       </div>
 
       <Card>
@@ -93,6 +100,7 @@ export default function AccountantInvoices() {
       </Card>
 
       {collect && <CollectModal invoice={collect} onClose={() => setCollect(null)} />}
+      {raiseOpen && <RaiseFeesModal onClose={() => setRaiseOpen(false)} />}
     </div>
   );
 }

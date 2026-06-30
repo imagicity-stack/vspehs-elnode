@@ -62,8 +62,8 @@ export function CollectModal({ invoice, onClose }: { invoice: Invoice; onClose: 
                 </div>
               </div>
               <div>
-                <label className="label">Reference (optional)</label>
-                <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Txn / cheque no." className="input" />
+                <label className="label">Transaction ID {method === "cash" ? "(optional)" : ""}</label>
+                <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="UPI / bank txn / cheque no." className="input" />
               </div>
             </div>
             <button onClick={collect} disabled={amount <= 0} className="btn-primary mt-5 w-full py-3">Record {inr(amount)}</button>

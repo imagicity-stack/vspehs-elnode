@@ -6,6 +6,7 @@ import { useData } from "@/lib/store";
 import { Card, CardHeader, Badge, Stat, EmptyState, Table, Th, Td, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { inr, formatDate, fullName } from "@/lib/utils";
+import { isDemoMode } from "@/lib/firebase";
 import {
   isRazorpayConfigured, RAZORPAY_KEY_ID, loadRazorpayScript,
   createRazorpayOrder, verifyRazorpayPayment,
@@ -23,8 +24,10 @@ export default function ParentFees() {
   const [payFor, setPayFor] = useState<Invoice | null>(null);
   if (!child) return <EmptyState title="No child linked." />;
 
+  // Only outstanding invoices are shown here — once fully paid (online or
+  // collected by the accountant) they drop off and live in Payment Receipts.
   const invoices = data.invoices
-    .filter((i) => i.studentId === child.id)
+    .filter((i) => i.studentId === child.id && i.status !== "paid")
     .sort((a, b) => b.issuedDate.localeCompare(a.issuedDate));
   const receipts = data.payments
     .filter((p) => p.studentId === child.id)
@@ -49,9 +52,9 @@ export default function ParentFees() {
       </div>
 
       <Card>
-        <CardHeader title="Invoices" icon={<IndianRupee className="h-5 w-5" />} />
+        <CardHeader title="Outstanding Fees" icon={<IndianRupee className="h-5 w-5" />} />
         {invoices.length === 0 ? (
-          <div className="p-5"><EmptyState title="No invoices yet" /></div>
+          <div className="p-5"><EmptyState title="No outstanding fees 🎉" hint="Paid invoices appear under Payment Receipts below." /></div>
         ) : (
           <Table>
             <thead>
@@ -159,16 +162,22 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
         notes: { invoiceId: invoice.id, admissionNo: student?.admissionNo },
         theme: { color: "#1d40f5" },
         handler: async (resp: any) => {
-          const verified = await verifyRazorpayPayment(resp);
+          const { verified, recorded } = await verifyRazorpayPayment(resp, {
+            invoiceId: invoice.id, studentId: invoice.studentId, amount,
+          });
           if (!verified) {
             setError("Payment could not be verified. If money was debited it will be refunded.");
             setProcessing(false);
             return;
           }
-          recordPayment({
-            invoiceId: invoice.id, studentId: invoice.studentId, amount,
-            method: "upi", collectedBy: "online", reference: resp.razorpay_payment_id,
-          });
+          // The server records the payment in Firebase mode; only record from
+          // the client when it didn't (e.g. local/demo data).
+          if (!recorded) {
+            recordPayment({
+              invoiceId: invoice.id, studentId: invoice.studentId, amount,
+              method: "upi", collectedBy: "online", reference: resp.razorpay_payment_id,
+            });
+          }
           setProcessing(false);
           setDone(true);
         },
@@ -185,7 +194,11 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
     }
   };
 
-  const pay = () => (isRazorpayConfigured ? payRazorpay() : payDemo());
+  const pay = () => {
+    if (isRazorpayConfigured) return payRazorpay();
+    if (isDemoMode) return payDemo();
+    setError("Online payment isn't enabled yet. Please pay at the school office — the accountant can collect it.");
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -216,7 +229,7 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
               <label className="label">Amount</label>
               <input type="number" value={amount} max={remaining} min={1} onChange={(e) => setAmount(Math.min(remaining, Math.max(0, Number(e.target.value))))} className="input" />
             </div>
-            {!isRazorpayConfigured && (
+            {!isRazorpayConfigured && isDemoMode && (
               <div className="mt-3">
                 <label className="label">Method</label>
                 <div className="grid grid-cols-4 gap-2">
@@ -232,7 +245,7 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
             </button>
             <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
               <ShieldCheck className="h-3.5 w-3.5" />
-              {isRazorpayConfigured ? "Secured by Razorpay" : "Demo mode — no real charge"}
+              {isRazorpayConfigured ? "Secured by Razorpay" : isDemoMode ? "Demo mode — no real charge" : "Online payment not enabled"}
             </p>
           </>
         )}

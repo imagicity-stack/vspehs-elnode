@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useData } from "@/lib/store";
+import { RaiseFeesModal } from "../RaiseFeesModal";
 import { Card, CardHeader, Badge, Stat, Table, Th, Td } from "@/components/ui";
 import { inr } from "@/lib/utils";
 import { FeeCategory } from "@/lib/types";
-import { Wallet, Bus, Palette, GraduationCap, Soup, FileText, IndianRupee } from "lucide-react";
+import { Wallet, Bus, Palette, GraduationCap, Soup, FileText, IndianRupee, CalendarPlus } from "lucide-react";
 
 const catIcon: Record<FeeCategory, any> = {
   tuition: GraduationCap, transport: Bus, activity: Palette, admission: FileText, exam: FileText, meal: Soup, other: Wallet,
@@ -13,13 +15,19 @@ const freqTone = (f: string) => (f === "monthly" ? "brand" : f === "quarterly" ?
 
 export default function AccountantFees() {
   const data = useData();
+  const [raiseOpen, setRaiseOpen] = useState(false);
   const monthlyExpected = data.feeHeads.filter((f) => f.frequency === "monthly").reduce((s, f) => s + f.amount, 0) * data.students.length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Fee Structure</h1>
-        <p className="mt-1 text-sm text-slate-500">Configured fee heads applied when generating invoices.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Fee Structure</h1>
+          <p className="mt-1 text-sm text-slate-500">Fee heads are set by the admin and applied when raising fee requests.</p>
+        </div>
+        <button onClick={() => setRaiseOpen(true)} className="btn-primary shrink-0">
+          <CalendarPlus className="h-4 w-4" /> Raise Monthly Fees
+        </button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -73,6 +81,8 @@ export default function AccountantFees() {
           </tbody>
         </Table>
       </Card>
+
+      {raiseOpen && <RaiseFeesModal onClose={() => setRaiseOpen(false)} />}
     </div>
   );
 }

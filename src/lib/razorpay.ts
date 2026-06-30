@@ -59,14 +59,22 @@ export async function createRazorpayOrder(args: {
   return res.json();
 }
 
-/** Verify a completed payment's signature on the server. */
-export async function verifyRazorpayPayment(payload: RazorpaySuccess): Promise<boolean> {
+/**
+ * Verify a completed payment's signature on the server. Passing the invoice
+ * context lets the server record the payment (and update the invoice) directly,
+ * which is required in Firebase mode where parents can't write those docs.
+ * `recorded` is true when the server persisted it.
+ */
+export async function verifyRazorpayPayment(
+  payload: RazorpaySuccess,
+  context?: { invoiceId: string; studentId: string; amount: number },
+): Promise<{ verified: boolean; recorded: boolean; receiptNo?: string }> {
   const res = await fetch("/api/razorpay/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, ...context }),
   });
-  if (!res.ok) return false;
-  const { verified } = await res.json();
-  return Boolean(verified);
+  if (!res.ok) return { verified: false, recorded: false };
+  const data = await res.json();
+  return { verified: Boolean(data.verified), recorded: Boolean(data.recorded), receiptNo: data.receiptNo };
 }
