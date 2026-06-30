@@ -29,18 +29,20 @@ async function callAdmin(path: string, payload: unknown): Promise<boolean> {
 }
 
 // ── CSV template ──────────────────────────────────────────────
-// The `class` column takes the class NAME (e.g. "Nursery A") — not the
-// internal id — and is resolved to a class id on import.
+// `class` takes the level/grade (e.g. "Nursery") and `section` the section
+// letter (e.g. "A"); together they resolve to a class on import.
+type ClassRef = { id: string; name: string; level: string; section: string };
+
 const CSV_HEADERS = [
   "firstName", "lastName", "admissionNo", "gender",
-  "dob", "bloodGroup", "class",
+  "dob", "bloodGroup", "class", "section",
   "fatherName", "motherName", "primaryContact", "allergies",
 ];
 
-function downloadTemplate(sampleClass?: string) {
+function downloadTemplate(sample?: { level: string; section: string }) {
   const example = [
     "Aarav", "Mehta", "2025001", "male",
-    "2022-04-18", "B+", sampleClass || "Nursery A",
+    "2022-04-18", "B+", sample?.level || "Nursery", sample?.section || "A",
     "Rohit Mehta", "Sneha Mehta", "+91 98765 40001", "Peanuts",
   ];
   const csv = [CSV_HEADERS, example].map((r) => r.join(",")).join("\n");
@@ -56,44 +58,55 @@ function downloadTemplate(sampleClass?: string) {
 interface ParsedRow {
   firstName: string; lastName: string; admissionNo: string;
   gender: Student["gender"]; dob: string; bloodGroup: BloodGroup;
-  className: string; classId: string; fatherName: string; motherName: string;
+  className: string; section: string; classId: string;
+  fatherName: string; motherName: string;
   primaryContact: string; allergies: string[];
   _error?: string;
 }
 
-function parseCSV(
-  text: string,
-  existing: Set<string>,
-  classes: { id: string; name: string }[],
-): ParsedRow[] {
+function parseCSV(text: string, existing: Set<string>, classes: ClassRef[]): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
   const seen = new Set<string>(); // admission numbers seen earlier in this file
-  // Resolve a class by name (case-insensitive); also accept a raw id for
-  // backwards compatibility with older templates.
-  const byName = new Map(classes.map((c) => [c.name.trim().toLowerCase(), c.id]));
-  const ids = new Set(classes.map((c) => c.id));
+  const available = classes.map((c) => `${c.level} ${c.section}`).join(", ") || "none — add classes first";
   return lines.slice(1).map((line, i) => {
     const vals = line.split(",").map((v) => v.trim());
     const get = (key: string) => vals[headers.indexOf(key)] ?? "";
     const admNo = get("admissionno");
-    const classRaw = get("class") || get("classname") || get("classid");
+    const classRaw = (get("class") || get("classname")).trim();
+    const sectionRaw = get("section").trim();
     const fail = (msg: string): ParsedRow => ({
       firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
-      dob: "", bloodGroup: "Unknown" as BloodGroup, className: classRaw, classId: "", fatherName: "",
-      motherName: "", primaryContact: "", allergies: [],
+      dob: "", bloodGroup: "Unknown" as BloodGroup, className: classRaw, section: sectionRaw,
+      classId: "", fatherName: "", motherName: "", primaryContact: "", allergies: [],
       _error: `Row ${i + 2}: ${msg}`,
     });
     if (!/^\d{7}$/.test(admNo)) return fail(`Invalid 7-digit admission number "${admNo}"`);
     if (existing.has(admNo)) return fail(`Admission number ${admNo} is already enrolled`);
     if (seen.has(admNo)) return fail(`Admission number ${admNo} is duplicated in this file`);
     if (!classRaw) return fail("Class is required");
-    const classId = byName.get(classRaw.toLowerCase()) ?? (ids.has(classRaw) ? classRaw : "");
-    if (!classId) {
-      const available = classes.map((c) => c.name).join(", ") || "none — add classes first";
-      return fail(`Unknown class "${classRaw}". Available: ${available}`);
+
+    // Resolve by level + section; fall back to full name / id for old files.
+    const sameLevel = classes.filter((c) => c.level.toLowerCase() === classRaw.toLowerCase());
+    let match: ClassRef | undefined;
+    if (sameLevel.length) {
+      if (sectionRaw) {
+        match = sameLevel.find((c) => c.section.trim().toLowerCase() === sectionRaw.toLowerCase());
+        if (!match) return fail(`Section "${sectionRaw}" not found for ${classRaw}. Sections: ${sameLevel.map((c) => c.section).join(", ")}`);
+      } else if (sameLevel.length === 1) {
+        match = sameLevel[0];
+      } else {
+        return fail(`Section is required for ${classRaw} (sections: ${sameLevel.map((c) => c.section).join(", ")})`);
+      }
+    } else {
+      const combined = (sectionRaw ? `${classRaw} ${sectionRaw}` : classRaw).toLowerCase();
+      match = classes.find((c) => c.name.toLowerCase() === classRaw.toLowerCase())
+        ?? classes.find((c) => c.name.toLowerCase() === combined)
+        ?? classes.find((c) => c.id === classRaw);
+      if (!match) return fail(`Unknown class "${classRaw}${sectionRaw ? ` / ${sectionRaw}` : ""}". Available: ${available}`);
     }
+
     seen.add(admNo);
     return {
       firstName: get("firstname"), lastName: get("lastname"),
@@ -101,8 +114,7 @@ function parseCSV(
       gender: (get("gender") as Student["gender"]) || "male",
       dob: get("dob") || "2022-01-01",
       bloodGroup: (get("bloodgroup") as BloodGroup) || "Unknown",
-      className: classes.find((c) => c.id === classId)?.name ?? classRaw,
-      classId,
+      className: match.level, section: match.section, classId: match.id,
       fatherName: get("fathername"), motherName: get("mothername"),
       primaryContact: get("primarycontact"),
       allergies: get("allergies") ? get("allergies").split(";").map((a) => a.trim()).filter(Boolean) : [],
@@ -432,24 +444,27 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
               <p className="text-sm font-semibold text-slate-800">Step 1 — Download template</p>
               <p className="mt-0.5 text-xs text-slate-500">CSV with all required column headers.</p>
             </div>
-            <button onClick={() => downloadTemplate(data.classes[0]?.name)} className="btn-ghost shrink-0">
+            <button
+              onClick={() => downloadTemplate(data.classes[0] && { level: data.classes[0].level, section: data.classes[0].section })}
+              className="btn-ghost shrink-0"
+            >
               <Download className="h-4 w-4" /> Template CSV
             </button>
           </div>
           {data.classes.length > 0 && (
             <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-              <p className="mb-1.5 text-xs font-semibold text-slate-600">Type one of these class names in the <code>class</code> column:</p>
+              <p className="mb-1.5 text-xs font-semibold text-slate-600">Available <code>class</code> + <code>section</code> values:</p>
               <div className="flex flex-wrap gap-2">
                 {data.classes.map((c) => (
                   <span key={c.id} className="rounded bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
-                    {c.name}
+                    {c.level} <span className="text-brand-400">·</span> {c.section}
                   </span>
                 ))}
               </div>
             </div>
           )}
           <div className="mt-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
-            <strong>Tips:</strong> The <code>class</code> column takes the class name (e.g. <code>Nursery A</code>).
+            <strong>Tips:</strong> Put the level in <code>class</code> (e.g. <code>Nursery</code>) and the section in <code>section</code> (e.g. <code>A</code>).
             Use <code>;</code> to separate multiple allergies (e.g. <code>Peanuts;Dairy</code>).
             Date: <code>YYYY-MM-DD</code>. Gender: <code>male</code> / <code>female</code> / <code>other</code>.
           </div>
@@ -488,7 +503,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-slate-50">
                     <tr>
-                      {["Name", "Admission No", "Class", "Gender", "DOB", "Blood Group"].map((h) => (
+                      {["Name", "Admission No", "Class", "Section", "Gender", "DOB", "Blood Group"].map((h) => (
                         <th key={h} className="px-3 py-2 text-left font-semibold text-slate-500">{h}</th>
                       ))}
                     </tr>
@@ -499,6 +514,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                         <td className="px-3 py-2 font-medium text-slate-800">{r.firstName} {r.lastName}</td>
                         <td className="px-3 py-2 font-mono text-slate-600">{r.admissionNo}</td>
                         <td className="px-3 py-2 text-slate-600">{r.className}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.section}</td>
                         <td className="px-3 py-2 capitalize text-slate-600">{r.gender}</td>
                         <td className="px-3 py-2 text-slate-600">{r.dob}</td>
                         <td className="px-3 py-2 text-slate-600">{r.bloodGroup}</td>
