@@ -3,13 +3,30 @@
 import { useRef, useState } from "react";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
-import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
+import { toast } from "@/components/Toast";
+import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
-  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2,
+  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2, Trash2,
 } from "lucide-react";
+
+// Calls a protected admin route with the caller's ID token. Returns ok/false.
+async function callAdmin(path: string, payload: unknown): Promise<boolean> {
+  if (!isFirebaseConfigured || !auth?.currentUser) return false;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // ── CSV template ──────────────────────────────────────────────
 const CSV_HEADERS = [
@@ -42,22 +59,25 @@ interface ParsedRow {
   _error?: string;
 }
 
-function parseCSV(text: string): ParsedRow[] {
+function parseCSV(text: string, existing: Set<string>): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const seen = new Set<string>(); // admission numbers seen earlier in this file
   return lines.slice(1).map((line, i) => {
     const vals = line.split(",").map((v) => v.trim());
     const get = (key: string) => vals[headers.indexOf(key)] ?? "";
     const admNo = get("admissionno");
-    if (!/^\d{7}$/.test(admNo)) {
-      return {
-        firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
-        dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
-        motherName: "", primaryContact: "", allergies: [],
-        _error: `Row ${i + 2}: Invalid 7-digit admission number "${admNo}"`,
-      };
-    }
+    const fail = (msg: string): ParsedRow => ({
+      firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
+      dob: "", bloodGroup: "Unknown" as BloodGroup, classId: "", fatherName: "",
+      motherName: "", primaryContact: "", allergies: [],
+      _error: `Row ${i + 2}: ${msg}`,
+    });
+    if (!/^\d{7}$/.test(admNo)) return fail(`Invalid 7-digit admission number "${admNo}"`);
+    if (existing.has(admNo)) return fail(`Admission number ${admNo} is already enrolled`);
+    if (seen.has(admNo)) return fail(`Admission number ${admNo} is duplicated in this file`);
+    seen.add(admNo);
     return {
       firstName: get("firstname"), lastName: get("lastname"),
       admissionNo: admNo,
@@ -89,6 +109,21 @@ export default function AdminStudents() {
         s.admissionNo.includes(q),
     )
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
+
+  const removeStudent = async (s: Student) => {
+    if (!confirm(`Delete ${fullName(s)} (${s.admissionNo})? This permanently removes the student and the parent login.`)) return;
+    data.deleteStudent(s.id);
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/students/manage", {
+        action: "delete", studentId: s.id, admissionNo: s.admissionNo,
+      });
+      ok
+        ? toast.success(`${fullName(s)} and the parent login were removed.`)
+        : toast.error(`${fullName(s)}'s record was removed, but the parent login may still exist — check Firebase Admin setup.`);
+    } else {
+      toast.success(`${fullName(s)} removed.`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -144,7 +179,9 @@ export default function AdminStudents() {
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        {data.loading && data.students.length === 0 ? (
+          <Loading label="Loading students…" />
+        ) : rows.length === 0 ? (
           <div className="p-8">
             <EmptyState
               title={data.students.length === 0 ? "No students yet" : "No students match"}
@@ -178,13 +215,22 @@ export default function AdminStudents() {
                     <Td className="text-slate-500">{s.primaryContact}</Td>
                     <Td><Badge tone={s.status === "active" ? "green" : "slate"}>{s.status}</Badge></Td>
                     <Td>
-                      <button
-                        onClick={() => setEditStudent(s)}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
-                        title="Edit student"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditStudent(s)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                          title="Edit student"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => removeStudent(s)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Delete student"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </Td>
                   </tr>
                 );
@@ -208,12 +254,14 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
+  const [provisioned, setProvisioned] = useState(0);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const existing = new Set(data.students.map((s) => s.admissionNo));
     const reader = new FileReader();
-    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string));
+    reader.onload = (ev) => setRows(parseCSV(ev.target?.result as string, existing));
     reader.readAsText(file);
   };
 
@@ -222,20 +270,57 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
 
   const importAll = async () => {
     setImporting(true);
+
+    // Roll numbers continue from the highest existing one per class so a batch
+    // doesn't hand out duplicates (state doesn't update mid-loop).
+    const rollTally: Record<string, number> = {};
+    data.students.forEach((s) => {
+      rollTally[s.classId] = Math.max(rollTally[s.classId] ?? 0, s.rollNo);
+    });
+
+    // When Firebase is live, provision each parent login + Firestore docs via
+    // the same protected route the single "Add Student" flow uses.
+    let token: string | null = null;
+    if (isFirebaseConfigured && auth?.currentUser) {
+      try { token = await auth.currentUser.getIdToken(); } catch { token = null; }
+    }
+
+    let created = 0;
+    const today = new Date().toISOString().slice(0, 10);
     for (const row of validRows) {
-      const rollNo = data.students.filter((s) => s.classId === row.classId).length + 1;
-      data.addStudent({
+      rollTally[row.classId] = (rollTally[row.classId] ?? 0) + 1;
+      const student: Student = {
+        id: `st-${row.admissionNo}`,
         admissionNo: row.admissionNo, firstName: row.firstName, lastName: row.lastName,
-        gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup, classId: row.classId, rollNo,
+        gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup,
+        classId: row.classId, rollNo: rollTally[row.classId],
         allergies: row.allergies,
         emergencyContacts: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact }],
         pickupPersons: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact, authorised: true }],
         siblings: [], address: "—", fatherName: row.fatherName, motherName: row.motherName,
         primaryContact: row.primaryContact,
-        admissionDate: new Date().toISOString().slice(0, 10),
-        transportRoute: "Self", status: "active",
-      });
+        admissionDate: today, transportRoute: "Self", status: "active",
+      };
+
+      const { id: _id, ...withoutId } = student;
+      data.addStudent(withoutId);
+
+      if (token) {
+        try {
+          const res = await fetch("/api/students/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            // Default PIN = admission number; parents can change it later.
+            body: JSON.stringify({ student, pin: row.admissionNo }),
+          });
+          if (res.ok) created++;
+        } catch {
+          /* leave provisioning count unchanged; student still saved locally */
+        }
+      }
     }
+
+    setProvisioned(created);
     setImporting(false);
     setDone(true);
   };
@@ -252,6 +337,21 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           <p className="mt-1 text-sm text-slate-500">
             {validRows.length} student{validRows.length !== 1 ? "s" : ""} added successfully.
           </p>
+          {isFirebaseConfigured ? (
+            <p className="mt-2 text-xs text-slate-500">
+              {provisioned} parent login{provisioned !== 1 ? "s" : ""} provisioned
+              {" "}(login = admission number, PIN = admission number).
+              {provisioned < validRows.length && (
+                <span className="mt-1 block text-amber-600">
+                  {validRows.length - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-600">
+              Demo mode — saved to this browser only. Configure Firebase to persist and create parent logins.
+            </p>
+          )}
           <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
         </div>
       </div>
@@ -519,8 +619,10 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
   }>(null);
 
+  const dupAdmission = data.students.some((s) => s.admissionNo === form.admissionNo);
+
   const save = async () => {
-    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo)) return;
+    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
     setBusy(true);
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
     const pin = String(Math.floor(100000 + Math.random() * 900000));
@@ -561,7 +663,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     setCreated({ admissionNo: form.admissionNo, pin, email, provision });
   };
 
-  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo);
+  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
 
   if (created) {
     return (
@@ -609,7 +711,14 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name"><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" /></Field>
           <Field label="Last name"><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" /></Field>
-          <Field label="Admission no (7 digits)"><input value={form.admissionNo} onChange={(e) => set("admissionNo", e.target.value.replace(/\D/g, "").slice(0, 7))} className="input" /></Field>
+          <Field label="Admission no (7 digits)">
+            <input
+              value={form.admissionNo}
+              onChange={(e) => set("admissionNo", e.target.value.replace(/\D/g, "").slice(0, 7))}
+              className={`input ${dupAdmission ? "border-rose-400 focus:ring-rose-300" : ""}`}
+            />
+            {dupAdmission && <p className="mt-1 text-xs text-rose-600">A student with this admission number already exists.</p>}
+          </Field>
           <Field label="Class">
             <select value={form.classId} onChange={(e) => set("classId", e.target.value)} className="input">
               {data.classes.length === 0 && <option value="">— No classes —</option>}

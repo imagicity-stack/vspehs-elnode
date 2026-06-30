@@ -2,12 +2,37 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat } from "@/components/ui";
+import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { toast } from "@/components/Toast";
+import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { formatDate, todayISO } from "@/lib/utils";
 import { Staff, StaffRole } from "@/lib/types";
 import {
   GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase, Edit2, BookOpen,
+  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck, Trash2,
 } from "lucide-react";
+
+// Calls a protected admin route with the caller's ID token. Returns ok/false.
+async function callAdmin(path: string, payload: unknown): Promise<boolean> {
+  if (!isFirebaseConfigured || !auth?.currentUser) return false;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Temporary password generated for a new staff login (admin shares it once).
+function genPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
 
 const roleTone: Record<StaffRole, "brand" | "amber" | "violet" | "slate"> = {
   teacher: "brand", accountant: "amber", superadmin: "violet", helper: "slate",
@@ -21,6 +46,19 @@ export default function AdminStaff() {
 
   const pendingLeave = data.leaveRequests.filter((l) => l.status === "pending");
   const presentToday = data.staffAttendance.filter((a) => a.date === today && a.status !== "absent").length;
+
+  const removeStaff = async (s: Staff) => {
+    if (!confirm(`Delete ${s.name}? This permanently removes their login and record.`)) return;
+    data.deleteStaff(s.id);
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/staff/manage", { action: "delete", staffId: s.id, email: s.email });
+      ok
+        ? toast.success(`${s.name} and their login were removed.`)
+        : toast.error(`${s.name}'s record was removed, but the login may still exist — check Firebase Admin setup.`);
+    } else {
+      toast.success(`${s.name} removed.`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -67,6 +105,17 @@ export default function AdminStaff() {
 
       <Card>
         <CardHeader title="Staff Directory" icon={<Briefcase className="h-5 w-5" />} />
+        {data.loading && data.staff.length === 0 ? (
+          <Loading label="Loading staff…" />
+        ) : data.staff.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              icon={<GraduationCap className="h-8 w-8" />}
+              title="No staff yet"
+              hint="Add teachers, accountants and support staff — each gets a login."
+            />
+          </div>
+        ) : (
         <Table>
           <thead>
             <tr className="border-b border-slate-100">
@@ -114,19 +163,29 @@ export default function AdminStaff() {
                   </Td>
                   <Td><Badge tone={s.status === "active" ? "green" : s.status === "on-leave" ? "amber" : "slate"}>{s.status}</Badge></Td>
                   <Td>
-                    <button
-                      onClick={() => setEditStaff(s)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
-                      title="Edit staff"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setEditStaff(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+                        title="Edit staff"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => removeStaff(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Delete staff"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </Td>
                 </tr>
               );
             })}
           </tbody>
         </Table>
+        )}
       </Card>
 
       {open && <AddStaffModal onClose={() => setOpen(false)} />}
@@ -193,22 +252,80 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
   });
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<{
+    name: string; email: string; password: string;
+    provision: "demo" | "created" | "failed";
+  } | null>(null);
 
   const isTeacher = form.role === "teacher" || form.role === "helper";
+  const emailClean = form.email.trim().toLowerCase();
+  const dupEmail = emailClean.length > 0 && data.staff.some((s) => s.email.toLowerCase() === emailClean);
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailClean);
 
-  const save = () => {
-    if (!form.name || !form.email) return;
-    data.addStaff({
+  const save = async () => {
+    if (!form.name || !emailValid || dupEmail) return;
+    setBusy(true);
+    const password = genPassword();
+    const newStaff = data.addStaff({
       staffCode: `EMP-${String(data.staff.length + 1).padStart(3, "0")}`,
-      name: form.name, email: form.email, role: form.role, phone: form.phone,
+      name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, phone: form.phone,
       qualification: form.qualification || "—", experienceYears: Number(form.experienceYears) || 0,
       joiningDate: new Date().toISOString().slice(0, 10), dob: "1990-01-01", address: "—",
       assignedClassIds: [],
       subjects: isTeacher ? selectedSubjects : [],
       status: "active",
     });
-    onClose();
+
+    let provision: "demo" | "created" | "failed" = "demo";
+    if (isFirebaseConfigured && auth?.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken();
+        const res = await fetch("/api/staff/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ staff: newStaff, password }),
+        });
+        provision = res.ok ? "created" : "failed";
+      } catch {
+        provision = "failed";
+      }
+    }
+
+    setBusy(false);
+    setCreated({ name: newStaff.name, email: newStaff.email, password, provision });
   };
+
+  if (created) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+        <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+          <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+          <div className="text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></div>
+            <h3 className="text-lg font-bold text-slate-900">{created.name} added</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {created.provision === "created" && "Staff login created. Share these credentials securely."}
+              {created.provision === "failed" && "Staff saved, but the login could not be provisioned — check the server's Firebase Admin setup."}
+              {created.provision === "demo" && "Demo mode — saved to this browser only. Configure Firebase to create a real login."}
+            </p>
+          </div>
+          {created.provision === "created" && (
+            <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <CredRow icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={created.email} />
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="Temporary password" value={created.password} />
+              <p className="flex items-start gap-1.5 pt-1 text-xs text-slate-400">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                The staff member should change this password after their first sign-in.
+              </p>
+            </div>
+          )}
+          <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -226,7 +343,13 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="label">Work email</label>
-            <input value={form.email} onChange={(e) => set("email", e.target.value)} className="input" placeholder="name@school.app" />
+            <input
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              className={`input ${dupEmail ? "border-rose-400 focus:ring-rose-300" : ""}`}
+              placeholder="name@school.app"
+            />
+            {dupEmail && <p className="mt-1 text-xs text-rose-600">A staff member with this email already exists.</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -271,8 +394,33 @@ function AddStaffModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-        <button onClick={save} disabled={!form.name || !form.email} className="btn-primary mt-5 w-full py-3">
-          <BadgeCheck className="h-4 w-4" /> Add staff
+        <button onClick={save} disabled={!form.name || !emailValid || dupEmail || busy} className="btn-primary mt-5 w-full py-3">
+          {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Adding…</> : <><BadgeCheck className="h-4 w-4" /> Add staff</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Read-only credential row with copy-to-clipboard.
+function CredRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+      <div className="flex items-center gap-2 text-slate-500">
+        {icon}
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-sm font-semibold text-slate-800">{value}</span>
+        <button onClick={copy} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600" title="Copy">
+          {copied ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
         </button>
       </div>
     </div>
@@ -291,19 +439,36 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>(staff.subjects);
+  const [busy, setBusy] = useState(false);
 
   const isTeacher = staff.role === "teacher" || staff.role === "helper";
 
-  const save = () => {
+  const save = async () => {
     if (!form.name) return;
+    setBusy(true);
+    const status = form.status as Staff["status"];
     data.updateStaff(staff.id, {
       name: form.name.trim(),
       phone: form.phone.trim(),
       qualification: form.qualification.trim() || "—",
       experienceYears: Number(form.experienceYears) || 0,
-      status: form.status as Staff["status"],
+      status,
       subjects: isTeacher ? selectedSubjects : [],
     });
+
+    // Keep the login in step with the record: an inactive staff member can't sign in.
+    if (isFirebaseConfigured) {
+      const ok = await callAdmin("/api/staff/manage", {
+        action: "update", staffId: staff.id, email: staff.email,
+        role: staff.role, name: form.name.trim(), disabled: status === "inactive",
+      });
+      if (ok && status === "inactive") toast.info(`${form.name}'s login is now disabled.`);
+      else if (ok) toast.success(`${form.name} updated.`);
+      else toast.error(`${form.name}'s profile was saved, but the login couldn't be synced.`);
+    } else {
+      toast.success(`${form.name} updated.`);
+    }
+    setBusy(false);
     onClose();
   };
 
@@ -364,7 +529,9 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
         </div>
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
-          <button onClick={save} disabled={!form.name} className="btn-primary flex-1 py-2.5">Save Changes</button>
+          <button onClick={save} disabled={!form.name || busy} className="btn-primary flex-1 py-2.5">
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : "Save Changes"}
+          </button>
         </div>
       </div>
     </div>

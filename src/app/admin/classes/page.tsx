@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useData } from "@/lib/store";
 import { SchoolClass } from "@/lib/types";
-import { Card, Badge, Avatar, Progress, Stat, EmptyState } from "@/components/ui";
+import { Card, Badge, Avatar, Progress, Stat, EmptyState, Loading } from "@/components/ui";
 import { attendanceForDate } from "@/lib/analytics";
 import { fullName, todayISO } from "@/lib/utils";
 import {
@@ -46,7 +46,9 @@ export default function AdminClasses() {
         <Stat label="Enrolled" value={data.students.length} tone="green" icon={<Users className="h-5 w-5" />} />
       </div>
 
-      {data.classes.length === 0 ? (
+      {data.loading && data.classes.length === 0 ? (
+        <Card className="p-8"><Loading label="Loading classes…" /></Card>
+      ) : data.classes.length === 0 ? (
         <Card className="p-8">
           <EmptyState
             title="No classes yet"
