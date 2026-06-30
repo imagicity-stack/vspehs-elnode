@@ -21,7 +21,7 @@ service cloud.firestore {
     // bootstrap that lets a freshly-signed-in Google admin read/write before any
     // appUsers/{uid} document exists.
     function adminEmails() {
-      return ["dewesh@eldenheights.org"];
+      return ["dewesh@eldenheights.org", "contact.vsp@eldenheights.org"];
     }
     function isAllowlistedAdmin() {
       return isSignedIn() && request.auth.token.email in adminEmails();
