@@ -174,15 +174,15 @@ export function PortalShell({
         <main className="mx-auto max-w-7xl animate-fade-in px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
 
-      {pwOpen && <ChangePasswordModal isParent={role === "parent"} onClose={() => setPwOpen(false)} />}
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   );
 }
 
 // ── Change password modal ─────────────────────────────────────
-function ChangePasswordModal({ isParent, onClose }: { isParent: boolean; onClose: () => void }) {
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const { changePassword } = useAuth();
-  const noun = isParent ? "PIN" : "password";
+  const noun = "password";
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");

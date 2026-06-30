@@ -51,12 +51,12 @@ export default function ParentLogin() {
           </div>
         </div>
         <div>
-          <label className="label">PIN {isDemoMode && <span className="text-slate-400">(any value in demo)</span>}</label>
+          <label className="label">Password {isDemoMode && <span className="text-slate-400">(any value in demo)</span>}</label>
           <input
             type="password"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
-            placeholder="••••"
+            placeholder="••••••••"
             className="input"
           />
         </div>

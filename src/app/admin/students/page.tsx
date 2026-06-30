@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useData } from "@/lib/store";
-import { auth, isFirebaseConfigured, admissionNoToEmail } from "@/lib/firebase";
+import { auth, isFirebaseConfigured, admissionNoToEmail, DEFAULT_PASSWORD } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
 import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { fullName, ageFromDob } from "@/lib/utils";
@@ -147,8 +147,8 @@ export default function AdminStudents() {
       toast.info("PIN reset needs Firebase — not available in demo mode.");
       return;
     }
-    if (!confirm(`Reset the parent PIN for ${fullName(s)} (${s.admissionNo})?`)) return;
-    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    if (!confirm(`Reset the parent password for ${fullName(s)} (${s.admissionNo}) back to "${DEFAULT_PASSWORD}"?`)) return;
+    const pin = DEFAULT_PASSWORD;
     const ok = await callAdmin("/api/students/manage", { action: "reset", studentId: s.id, admissionNo: s.admissionNo, pin });
     if (ok) setResetCred({ name: fullName(s), admissionNo: s.admissionNo, pin });
     else toast.error(`Couldn't reset the PIN for ${fullName(s)} — check the parent login exists and Firebase Admin setup.`);
@@ -301,12 +301,12 @@ export default function AdminStudents() {
             <button onClick={() => setResetCred(null)} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
             <div className="text-center">
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600"><KeyRound className="h-7 w-7" /></div>
-              <h3 className="text-lg font-bold text-slate-900">Parent PIN reset</h3>
-              <p className="mt-1 text-sm text-slate-500">Share the new PIN for {resetCred.name} securely.</p>
+              <h3 className="text-lg font-bold text-slate-900">Parent password reset</h3>
+              <p className="mt-1 text-sm text-slate-500">{resetCred.name}&apos;s parent login is back to the default.</p>
             </div>
             <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <CredRow icon={<KeyRound className="h-4 w-4" />} label="Admission no. (login)" value={resetCred.admissionNo} />
-              <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="New temporary PIN" value={resetCred.pin} />
+              <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="Default password" value={resetCred.pin} />
             </div>
             <button onClick={() => setResetCred(null)} className="btn-primary mt-5 w-full py-3">Done</button>
           </div>
@@ -379,8 +379,8 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           const res = await fetch("/api/students/create", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            // Default PIN = admission number; parents can change it later.
-            body: JSON.stringify({ student, pin: row.admissionNo }),
+            // Everyone starts on the shared default password; parents change it later.
+            body: JSON.stringify({ student, pin: DEFAULT_PASSWORD }),
           });
           if (res.ok) created++;
         } catch {
@@ -409,7 +409,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           {isFirebaseConfigured ? (
             <p className="mt-2 text-xs text-slate-500">
               {provisioned} parent login{provisioned !== 1 ? "s" : ""} provisioned
-              {" "}(login = admission number, PIN = admission number).
+              {" "}(login = admission number, password = <span className="font-mono">{DEFAULT_PASSWORD}</span>).
               {provisioned < validRows.length && (
                 <span className="mt-1 block text-amber-600">
                   {validRows.length - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
@@ -699,7 +699,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
     setBusy(true);
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
-    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const pin = DEFAULT_PASSWORD;
     const studentId = `st-${form.admissionNo}`;
     const student: Omit<Student, "id"> & { id: string } = {
       id: studentId, admissionNo: form.admissionNo, firstName: form.firstName, lastName: form.lastName,
@@ -752,7 +752,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <CredRow icon={<KeyRound className="h-4 w-4" />} label="Admission no. (login)" value={created.admissionNo} />
-            <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="Temporary PIN" value={created.pin} />
+            <CredRow icon={<ShieldCheck className="h-4 w-4" />} label="Default password" value={created.pin} />
             <CredRow label="Parent email (internal)" value={created.email} />
           </div>
           <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
@@ -763,7 +763,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             {created.provision === "failed" && "Saved locally, but the Firebase account could not be created. Check Admin SDK env vars."}
             {created.provision === "demo" && "Connect Firebase to auto-create the parent Auth account on the server."}
           </div>
-          <p className="mt-3 text-xs text-slate-400">Share the admission number and PIN with the parent. They can change the PIN after first sign-in.</p>
+          <p className="mt-3 text-xs text-slate-400">Share the admission number and password with the parent. They can change the password after first sign-in.</p>
           <button onClick={onClose} className="btn-primary mt-4 w-full py-3">Done</button>
         </div>
       </div>
