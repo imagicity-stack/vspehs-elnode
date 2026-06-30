@@ -47,6 +47,8 @@ export default function AdminStaff() {
   const pendingLeave = data.leaveRequests.filter((l) => l.status === "pending");
   const presentToday = data.staffAttendance.filter((a) => a.date === today && a.status !== "absent").length;
 
+  const [resetCred, setResetCred] = useState<{ name: string; email: string; password: string } | null>(null);
+
   const removeStaff = async (s: Staff) => {
     if (!confirm(`Delete ${s.name}? This permanently removes their login and record.`)) return;
     data.deleteStaff(s.id);
@@ -58,6 +60,18 @@ export default function AdminStaff() {
     } else {
       toast.success(`${s.name} removed.`);
     }
+  };
+
+  const resetStaffPassword = async (s: Staff) => {
+    if (!isFirebaseConfigured) {
+      toast.info("Password reset needs Firebase — not available in demo mode.");
+      return;
+    }
+    if (!confirm(`Reset ${s.name}'s password? A new temporary password will be generated.`)) return;
+    const password = genPassword();
+    const ok = await callAdmin("/api/staff/manage", { action: "reset", staffId: s.id, email: s.email, password });
+    if (ok) setResetCred({ name: s.name, email: s.email, password });
+    else toast.error(`Couldn't reset ${s.name}'s password — check their login exists and Firebase Admin setup.`);
   };
 
   return (
@@ -172,6 +186,13 @@ export default function AdminStaff() {
                         <Edit2 className="h-4 w-4" />
                       </button>
                       <button
+                        onClick={() => resetStaffPassword(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                        title="Reset password"
+                      >
+                        <KeyRound className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => removeStaff(s)}
                         className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         title="Delete staff"
@@ -190,6 +211,24 @@ export default function AdminStaff() {
 
       {open && <AddStaffModal onClose={() => setOpen(false)} />}
       {editStaff && <EditStaffModal staff={editStaff} onClose={() => setEditStaff(null)} />}
+      {resetCred && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setResetCred(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
+            <button onClick={() => setResetCred(null)} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600"><KeyRound className="h-7 w-7" /></div>
+              <h3 className="text-lg font-bold text-slate-900">Password reset</h3>
+              <p className="mt-1 text-sm text-slate-500">Share this new temporary password with {resetCred.name} securely.</p>
+            </div>
+            <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <CredRow icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={resetCred.email} />
+              <CredRow icon={<KeyRound className="h-4 w-4" />} label="New temporary password" value={resetCred.password} />
+            </div>
+            <button onClick={() => setResetCred(null)} className="btn-primary mt-5 w-full py-3">Done</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

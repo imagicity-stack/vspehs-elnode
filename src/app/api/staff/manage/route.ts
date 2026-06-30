@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authorised." }, { status: 403 });
   }
 
-  let body: { action?: string; staffId?: string; email?: string; role?: string; disabled?: boolean; name?: string };
+  let body: { action?: string; staffId?: string; email?: string; role?: string; disabled?: boolean; name?: string; password?: string };
   try {
     body = await req.json();
   } catch {
@@ -60,6 +60,22 @@ export async function POST(req: Request) {
     } catch {
       uid = null; // no login to act on
     }
+  }
+
+  if (body.action === "reset") {
+    const password = String(body.password || "");
+    if (password.length < 6) {
+      return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
+    }
+    if (!uid) {
+      return NextResponse.json({ error: "No login exists for this staff member yet." }, { status: 404 });
+    }
+    try {
+      await adminAuth.updateUser(uid, { password });
+    } catch (e: any) {
+      return NextResponse.json({ error: "Could not reset password.", detail: e?.message }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, staffId });
   }
 
   if (body.action === "delete") {
