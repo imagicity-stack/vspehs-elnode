@@ -1,15 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, admissionNoToEmail, DEFAULT_PASSWORD } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
+import { PhotoUpload } from "@/components/PhotoUpload";
 import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { fullName, ageFromDob } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
-  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2, Trash2,
+  Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2, Trash2, CreditCard,
 } from "lucide-react";
 
 // Calls a protected admin route with the caller's ID token. Returns ok/false.
@@ -260,6 +262,13 @@ export default function AdminStudents() {
                     <Td><Badge tone={s.status === "active" ? "green" : "slate"}>{s.status}</Badge></Td>
                     <Td>
                       <div className="flex items-center gap-1">
+                        <Link
+                          href={`/admin/id-cards?student=${s.id}`}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                          title="ID card"
+                        >
+                          <CreditCard className="h-4 w-4" />
+                        </Link>
                         <button
                           onClick={() => setEditStudent(s)}
                           className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
@@ -559,6 +568,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useState<string | undefined>(student.photoUrl);
 
   const save = () => {
     if (!form.firstName) return;
@@ -578,6 +588,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
       allergies: form.allergies ? form.allergies.split(",").map((a) => a.trim()).filter(Boolean) : [],
       medicalNotes: form.medicalNotes.trim() || undefined,
       status: form.status as Student["status"],
+      photoUrl: photo,
     });
     setBusy(false);
     onClose();
@@ -595,6 +606,11 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
           Admission no. <span className="font-mono font-semibold text-slate-700">{student.admissionNo}</span>
           {" "}— cannot be changed (used for parent login).
         </p>
+
+        <div className="mt-4">
+          <label className="label">Photo (used on the ID card)</label>
+          <PhotoUpload studentId={student.id} name={fullName(student)} value={photo} onChange={setPhoto} />
+        </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name">
@@ -689,11 +705,13 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useState<string | undefined>(undefined);
   const [created, setCreated] = useState<null | {
     admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
   }>(null);
 
   const dupAdmission = data.students.some((s) => s.admissionNo === form.admissionNo);
+  const admissionReady = /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
 
   const save = async () => {
     if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
@@ -709,7 +727,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
       emergencyContacts: [{ name: form.fatherName || "Parent", relation: "Father", phone: form.primaryContact }],
       pickupPersons: [{ name: form.fatherName || "Parent", relation: "Father", phone: form.primaryContact, authorised: true }],
       siblings: [], address: "—", fatherName: form.fatherName, motherName: form.motherName,
-      primaryContact: form.primaryContact, parentEmail: undefined,
+      primaryContact: form.primaryContact, parentEmail: undefined, photoUrl: photo,
       admissionDate: new Date().toISOString().slice(0, 10), transportRoute: "Self", status: "active",
     };
 
@@ -782,6 +800,16 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             No classes found. Please add classes first from the Classes section.
           </div>
         )}
+
+        <div className="mt-4">
+          <label className="label">Photo (optional, for ID card)</label>
+          {admissionReady ? (
+            <PhotoUpload studentId={`st-${form.admissionNo}`} name={`${form.firstName} ${form.lastName}`.trim() || "Student"} value={photo} onChange={setPhoto} />
+          ) : (
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Enter a valid 7-digit admission number below to attach a photo.</p>
+          )}
+        </div>
+
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Field label="First name"><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className="input" /></Field>
           <Field label="Last name"><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className="input" /></Field>
