@@ -9,6 +9,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -79,9 +80,15 @@ export function isSuperAdminEmail(email?: string | null): boolean {
   return !!email && SUPERADMIN_EMAILS.includes(email.toLowerCase());
 }
 
+/** True when a Storage bucket is configured (student photo uploads). */
+export const isStorageConfigured = Boolean(
+  isFirebaseConfigured && process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+);
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let storage: FirebaseStorage | null = null;
 
 if (isFirebaseConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -100,6 +107,7 @@ if (isFirebaseConfigured) {
   } catch {
     db = useNamed ? getFirestore(app, FIREBASE_DATABASE_ID) : getFirestore(app);
   }
+  if (isStorageConfigured) storage = getStorage(app);
 }
 
 if (typeof window !== "undefined") {
@@ -112,4 +120,4 @@ if (typeof window !== "undefined") {
   );
 }
 
-export { app, auth, db };
+export { app, auth, db, storage };

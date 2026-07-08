@@ -74,4 +74,30 @@ body {
   body {
     background: white;
   }
+  /* Print only the ID-card area — hide all portal chrome. */
+  .print-area .idcard {
+    box-shadow: none !important;
+  }
+  .print-area .idcard-pair {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.printing-cards * {
+    visibility: hidden;
+  }
+  body.printing-cards .print-area,
+  body.printing-cards .print-area * {
+    visibility: visible;
+  }
+  body.printing-cards .print-area {
+    position: absolute;
+    inset: 0;
+    padding: 12px;
+  }
+}
+
+/* Ensure card background colours are printed */
+.idcard {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
