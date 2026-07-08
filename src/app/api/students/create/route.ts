@@ -51,26 +51,38 @@ export async function POST(req: Request) {
   const email = `${student.admissionNo}@${domain}`;
   const password = String(body.pin || DEFAULT_PASSWORD);
   const displayName = `${student.firstName} ${student.lastName} (Parent)`.trim();
-
-  // 3) Create (or reset) the parent Auth account.
   const adminAuth = getAuth(app);
+  const db = getFirestore(app);
+
+  // 3) Enforce uniqueness — never overwrite an existing student. A duplicate
+  //    admission number is rejected (409) at the source, whether it already
+  //    has a Firestore record or a parent Auth login.
+  const existingDoc = await db.collection("students").doc(student.id).get();
+  if (existingDoc.exists) {
+    return NextResponse.json({ error: `Admission number ${student.admissionNo} already exists.`, code: "duplicate" }, { status: 409 });
+  }
+  try {
+    await adminAuth.getUserByEmail(email);
+    return NextResponse.json({ error: `Admission number ${student.admissionNo} already exists.`, code: "duplicate" }, { status: 409 });
+  } catch {
+    /* no existing login — good, continue */
+  }
+
+  // 4) Create the parent Auth account.
   let uid: string;
   try {
     const rec = await adminAuth.createUser({ email, password, displayName });
     uid = rec.uid;
   } catch (e: any) {
     if (e?.code === "auth/email-already-exists") {
-      const existing = await adminAuth.getUserByEmail(email);
-      uid = existing.uid;
-      await adminAuth.updateUser(uid, { password });
-    } else {
-      return NextResponse.json({ error: "Could not create parent login.", detail: e?.message }, { status: 502 });
+      // Raced with another create — still a duplicate.
+      return NextResponse.json({ error: `Admission number ${student.admissionNo} already exists.`, code: "duplicate" }, { status: 409 });
     }
+    return NextResponse.json({ error: "Could not create parent login.", detail: e?.message }, { status: 502 });
   }
 
-  // 4) Role claim + Firestore documents.
+  // 5) Role claim + Firestore documents.
   await adminAuth.setCustomUserClaims(uid, { role: "parent", studentId: student.id });
-  const db = getFirestore(app);
   await db.collection("students").doc(student.id).set(student, { merge: true });
   await db.collection("appUsers").doc(uid).set(
     {
