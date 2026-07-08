@@ -67,6 +67,11 @@ body {
   background: #94a3b8;
 }
 
+/* Print portal is hidden on screen — used only when printing ID cards. */
+.print-cards-portal {
+  display: none;
+}
+
 @media print {
   .no-print {
     display: none !important;
@@ -74,29 +79,36 @@ body {
   body {
     background: white;
   }
-  /* Print only the ID-card area — hide all portal chrome. */
-  /* Each side (front, back) prints on its own page. */
-  .print-area .idcard {
-    box-shadow: none !important;
-    break-inside: avoid;
-    page-break-inside: avoid;
-    break-after: page;
-    page-break-after: always;
+
+  /* When printing cards, hide the whole app and show only the card portal. */
+  body.printing-cards > *:not(.print-cards-portal) {
+    display: none !important;
   }
-  .print-area .idcard-pair {
+  body.printing-cards .print-cards-portal {
     display: block;
   }
-  body.printing-cards * {
-    visibility: hidden;
+
+  /* One card per page, at real ID-card size (CR80 portrait, 54×85.6 mm). */
+  @page {
+    size: 54mm 85.6mm;
+    margin: 0;
   }
-  body.printing-cards .print-area,
-  body.printing-cards .print-area * {
-    visibility: visible;
+  .print-cards-portal .idcard-pair {
+    display: block;
   }
-  body.printing-cards .print-area {
-    position: absolute;
-    inset: 0;
-    padding: 12px;
+  .print-cards-portal .idcard-page {
+    width: 54mm;
+    height: 85.6mm;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+  }
+  /* The card is authored at 320px wide; scale it down to fill the card page. */
+  .print-cards-portal .idcard-page .idcard {
+    transform: scale(0.6378);
+    transform-origin: top left;
+    box-shadow: none !important;
   }
 }
 
