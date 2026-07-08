@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { canvasToBlobUnder, fileToDataUrl, loadImage } from "@/lib/imageTools";
+import { canvasToBlobUnder, loadImage } from "@/lib/imageTools";
 import { X, Loader2, Wand2, ZoomIn, Check } from "lucide-react";
 
 const VIEW = 288;   // square crop viewport (px)
@@ -9,8 +9,9 @@ const OUT = 640;    // exported square size (px)
 const MAX_BYTES = 500 * 1024;
 
 /**
- * Square crop tool with pan + zoom, an optional one-tap background removal,
- * and compression to under 500 KB. Returns the final File via onDone.
+ * Square crop tool with pan + zoom, an optional one-tap background removal
+ * (runs entirely in the browser — no API), and compression to under 500 KB.
+ * Returns the final File via onDone.
  */
 export function ImageCropModal({
   file, name, onCancel, onDone,
@@ -26,6 +27,7 @@ export function ImageCropModal({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [hasAlpha, setHasAlpha] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [removeMsg, setRemoveMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
@@ -61,10 +63,10 @@ export function ImageCropModal({
   // Geometry: fit the shorter side to the viewport (cover), then zoom/pan.
   const base = VIEW / Math.min(img.naturalWidth, img.naturalHeight);
   const scale = base * zoom;
-  const dispW = img.naturalWidth * scale;
-  const dispH = img.naturalHeight * scale;
-  const left = (VIEW - dispW) / 2 + offset.x;
-  const top = (VIEW - dispH) / 2 + offset.y;
+  const bgW = img.naturalWidth * scale;
+  const bgH = img.naturalHeight * scale;
+  const posX = (VIEW - bgW) / 2 + offset.x;
+  const posY = (VIEW - bgH) / 2 + offset.y;
 
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -79,29 +81,32 @@ export function ImageCropModal({
   const removeBg = async () => {
     setErr("");
     setRemoving(true);
+    setRemoveMsg("Preparing…");
     try {
-      const dataUrl = await fileToDataUrl(file);
-      const res = await fetch("/api/remove-bg", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: dataUrl }),
+      // Loaded from a CDN at runtime so the heavy WASM/ONNX bundle is never
+      // built into the app. Runs entirely in the browser — no server/API.
+      // @ts-expect-error — CDN URL module, not resolved at build time.
+      const mod = await import(/* webpackIgnore: true */ "https://esm.sh/@imgly/background-removal@1.7.0");
+      const removeBackground = (mod.removeBackground ?? mod.default) as
+        (input: Blob, config?: Record<string, unknown>) => Promise<Blob>;
+      const outBlob = await removeBackground(file, {
+        progress: (key: string, current: number, total: number) => {
+          const pct = total ? Math.round((current / total) * 100) : 0;
+          setRemoveMsg(`${key.includes("fetch") ? "Downloading model" : "Processing"}… ${pct}%`);
+        },
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || "Background removal failed.");
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(outBlob);
       const image = await loadImage(url);
       setSrc(url);
       setImg(image);
       setHasAlpha(true);
       setZoom(1);
       setOffset({ x: 0, y: 0 });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Background removal failed.");
+    } catch {
+      setErr("Background removal failed. Try again with a clearer photo.");
     } finally {
       setRemoving(false);
+      setRemoveMsg("");
     }
   };
 
@@ -115,8 +120,8 @@ export function ImageCropModal({
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvas unavailable.");
       // Map the visible viewport square back to source pixels.
-      const sx = (0 - left) / scale;
-      const sy = (0 - top) / scale;
+      const sx = (0 - posX) / scale;
+      const sy = (0 - posY) / scale;
       const sSide = VIEW / scale;
       ctx.drawImage(img, sx, sy, sSide, sSide, 0, 0, OUT, OUT);
       const blob = await canvasToBlobUnder(canvas, MAX_BYTES, hasAlpha);
@@ -131,35 +136,34 @@ export function ImageCropModal({
   return (
     <Shell onCancel={onCancel} title="Adjust photo" subtitle={name}>
       <div
-        className="relative mx-auto touch-none overflow-hidden rounded-2xl bg-slate-100 select-none"
-        style={{ width: VIEW, height: VIEW }}
+        className="relative mx-auto touch-none select-none overflow-hidden rounded-2xl bg-slate-100"
+        style={{
+          width: VIEW, height: VIEW,
+          backgroundImage: `url("${src}")`,
+          backgroundRepeat: "no-repeat",
+          backgroundSize: `${bgW}px ${bgH}px`,
+          backgroundPosition: `${posX}px ${posY}px`,
+          cursor: "grab",
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={name}
-          draggable={false}
-          style={{
-            position: "absolute", left, top,
-            width: dispW, height: dispH,
-            // Override Tailwind Preflight (img { max-width:100%; height:auto })
-            // so zoom scales uniformly instead of squeezing the width.
-            maxWidth: "none", maxHeight: "none",
-            cursor: "grab", userSelect: "none",
-          }}
-        />
         {/* Circular guide — the card shows the photo as a circle */}
         <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "0 0 0 9999px rgba(15,23,42,0.35) inset", borderRadius: "50%" }} />
         <div className="pointer-events-none absolute inset-2 rounded-full border-2 border-white/80" />
+        {removing && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/70 text-sm text-slate-600">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>{removeMsg || "Removing background…"}</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex items-center gap-3">
         <ZoomIn className="h-4 w-4 shrink-0 text-slate-400" />
-        <input type="range" min={1} max={3} step={0.01} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-brand-600" />
+        <input type="range" min={1} max={4} step={0.01} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-brand-600" />
       </div>
 
       <button onClick={removeBg} disabled={removing || busy} className="btn-ghost mt-3 w-full">
@@ -167,11 +171,11 @@ export function ImageCropModal({
       </button>
 
       {err && <p className="mt-2 text-xs text-rose-600">{err}</p>}
-      <p className="mt-2 text-center text-xs text-slate-400">Drag to reposition · pinch/slider to zoom · saved under 500 KB.</p>
+      <p className="mt-2 text-center text-xs text-slate-400">Drag to reposition · slider to zoom · saved under 500 KB.</p>
 
       <div className="mt-4 flex gap-3">
         <button onClick={onCancel} className="btn-ghost flex-1 py-2.5">Cancel</button>
-        <button onClick={apply} disabled={busy} className="btn-primary flex-1 py-2.5">
+        <button onClick={apply} disabled={busy || removing} className="btn-primary flex-1 py-2.5">
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Check className="h-4 w-4" /> Use photo</>}
         </button>
       </div>
