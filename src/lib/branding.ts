@@ -13,3 +13,7 @@ export const SCHOOL_LOCATION =
 
 /** "Drona Valley Public School, Vishnupuri" */
 export const SCHOOL_FULL_NAME = `${SCHOOL_NAME}, ${SCHOOL_LOCATION}`;
+
+/** Public website, shown on the ID-card back footer. */
+export const SCHOOL_WEBSITE =
+  process.env.NEXT_PUBLIC_SCHOOL_WEBSITE || "vsp.eldenheights.org";
