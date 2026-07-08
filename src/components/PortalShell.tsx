@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui";
 import { toast } from "@/components/Toast";
 import { isDemoMode } from "@/lib/firebase";
+import { SCHOOL_NAME } from "@/lib/branding";
 import {
   LogOut, Menu, X, GraduationCap, ChevronDown, BellRing, KeyRound, Loader2,
 } from "lucide-react";
@@ -48,26 +49,31 @@ export function PortalShell({
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3 text-slate-400">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-500" />
-          <p className="text-sm">Loading El-Node…</p>
+          <p className="text-sm">Loading…</p>
         </div>
       </div>
     );
   }
 
+  const isActive = (href: string) =>
+    pathname === href || (href !== portalHome[role] && pathname.startsWith(href));
+  const primary = nav.slice(0, 4);
+  const doLogout = async () => { await logout(); router.replace("/login"); };
+
   const Sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
           <GraduationCap className="h-5 w-5" />
         </div>
-        <div>
-          <p className="text-lg font-extrabold leading-none tracking-tight text-slate-900">El-Node</p>
+        <div className="min-w-0">
+          <p className="truncate text-base font-extrabold leading-tight tracking-tight text-slate-900">{SCHOOL_NAME}</p>
           <p className="text-[11px] font-medium text-slate-400">{roleLabel[role]}</p>
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
         {nav.map((item) => {
-          const active = pathname === item.href || (item.href !== portalHome[role] && pathname.startsWith(item.href));
+          const active = isActive(item.href);
           const Icon = item.icon;
           return (
             <Link
@@ -82,7 +88,7 @@ export function PortalShell({
           );
         })}
       </nav>
-      <div className="border-t border-slate-100 p-3">
+      <div className="space-y-1 border-t border-slate-100 p-3">
         <div className="flex items-center gap-3 rounded-xl px-2 py-2">
           <Avatar name={user.displayName} src={user.photoUrl} size={36} />
           <div className="min-w-0 flex-1">
@@ -90,6 +96,14 @@ export function PortalShell({
             <p className="truncate text-xs text-slate-400">{user.email ?? `#${user.admissionNo}`}</p>
           </div>
         </div>
+        {canChangePassword && (
+          <button onClick={() => { setOpen(false); setPwOpen(true); }} className="nav-link w-full">
+            <KeyRound className="h-[18px] w-[18px]" /> Change password
+          </button>
+        )}
+        <button onClick={doLogout} className="nav-link w-full text-rose-600 hover:bg-rose-50 hover:text-rose-700">
+          <LogOut className="h-[18px] w-[18px]" /> Sign out
+        </button>
       </div>
     </div>
   );
@@ -101,13 +115,24 @@ export function PortalShell({
         {Sidebar}
       </aside>
 
-      {/* Mobile drawer */}
-      {open && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-64 bg-white shadow-xl">{Sidebar}</aside>
-        </div>
-      )}
+      {/* Mobile slide-out drawer (always mounted for smooth transitions) */}
+      <div className={cn("fixed inset-0 z-50 lg:hidden", open ? "" : "pointer-events-none")}>
+        <div
+          className={cn("absolute inset-0 bg-slate-900/40 transition-opacity duration-200", open ? "opacity-100" : "opacity-0")}
+          onClick={() => setOpen(false)}
+        />
+        <aside
+          className={cn(
+            "absolute inset-y-0 left-0 flex w-[82vw] max-w-xs flex-col bg-white shadow-2xl transition-transform duration-200 ease-out",
+            open ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          <button onClick={() => setOpen(false)} className="absolute right-3 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+          {Sidebar}
+        </aside>
+      </div>
 
       <div className="lg:pl-64">
         {/* Live data-loading bar */}
@@ -117,30 +142,30 @@ export function PortalShell({
           </div>
         )}
 
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-md sm:px-6">
-          <div className="flex items-center gap-3">
-            <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)}>
-              <Menu className="h-5 w-5" />
-            </button>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{roleLabel[role]}</p>
-              {isDemoMode && <p className="text-[11px] font-medium text-amber-600">Demo mode · sample data</p>}
+        {/* Sticky top bar */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/85 px-4 backdrop-blur-md sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white lg:hidden">
+              <GraduationCap className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-900">{roleLabel[role]}</p>
+              {isDemoMode && <p className="text-[11px] font-medium text-amber-600">Demo mode</p>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+          <div className="flex items-center gap-1.5">
+            <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Notifications">
               <BellRing className="h-5 w-5" />
               <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
             </button>
             <div className="relative">
               <button
                 onClick={() => setMenu((m) => !m)}
-                className="flex items-center gap-2 rounded-xl border border-slate-200 py-1.5 pl-1.5 pr-2.5 hover:bg-slate-50"
+                className="flex items-center gap-2 rounded-xl border border-slate-200 py-1.5 pl-1.5 pr-2 hover:bg-slate-50"
               >
                 <Avatar name={user.displayName} src={user.photoUrl} size={28} />
                 <span className="hidden text-sm font-medium text-slate-700 sm:block">{user.displayName.split(" ")[0]}</span>
-                <ChevronDown className="h-4 w-4 text-slate-400" />
+                <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
               </button>
               {menu && (
                 <>
@@ -159,7 +184,7 @@ export function PortalShell({
                       </button>
                     )}
                     <button
-                      onClick={async () => { await logout(); router.replace("/login"); }}
+                      onClick={doLogout}
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
                     >
                       <LogOut className="h-4 w-4" /> Sign out
@@ -171,8 +196,38 @@ export function PortalShell({
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl animate-fade-in px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-7xl animate-fade-in px-4 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
       </div>
+
+      {/* Bottom navigation (mobile) */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {primary.map((item) => {
+            const active = isActive(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-semibold transition",
+                  active ? "text-brand-600" : "text-slate-400",
+                )}
+              >
+                <Icon className="h-[22px] w-[22px]" />
+                <span className="max-w-[66px] truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setOpen(true)}
+            className="flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-semibold text-slate-400"
+          >
+            <Menu className="h-[22px] w-[22px]" />
+            <span>More</span>
+          </button>
+        </div>
+      </nav>
 
       {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>

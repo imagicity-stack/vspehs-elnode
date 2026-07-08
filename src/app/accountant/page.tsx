@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useData } from "@/lib/store";
 import { Card, CardHeader, Stat, Badge, Avatar, Progress, EmptyState } from "@/components/ui";
+import { QuickActions } from "@/components/QuickActions";
 import { TrendArea, Donut, Bars } from "@/components/charts";
 import {
   collectionSummary, collectionTrend, feeByCategory, paymentMethodSplit,
@@ -10,6 +11,7 @@ import {
 import { inr, fullName, formatDate } from "@/lib/utils";
 import {
   Wallet, TrendingUp, AlertTriangle, Receipt, IndianRupee, ArrowRight, CircleSlash,
+  Users, FileText, BadgePercent, BarChart3,
 } from "lucide-react";
 
 export default function AccountantDashboard() {
@@ -34,6 +36,17 @@ export default function AccountantDashboard() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Accounts Dashboard</h1>
         <p className="mt-1 text-sm text-slate-500">Fee collection, dues and cashflow at a glance.</p>
       </div>
+
+      <QuickActions
+        actions={[
+          { label: "Students", href: "/accountant/students", icon: Users, tone: "brand", hint: "Raise fees" },
+          { label: "Invoices", href: "/accountant/invoices", icon: FileText, tone: "sky", hint: "View & collect" },
+          { label: "Payments", href: "/accountant/payments", icon: Receipt, tone: "green", hint: "Receipts" },
+          { label: "Fee Structure", href: "/accountant/fees", icon: Wallet, tone: "violet", hint: "Fee heads" },
+          { label: "Concessions", href: "/accountant/concessions", icon: BadgePercent, tone: "amber", hint: "Discounts" },
+          { label: "Pending Report", href: "/accountant/reports", icon: BarChart3, tone: "rose", hint: "Defaulters" },
+        ]}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Collected" value={inr(summary.collected)} tone="green" icon={<Wallet className="h-5 w-5" />} trend={{ value: `${summary.rate}%`, up: true }} hint="of billed" />

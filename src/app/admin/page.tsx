@@ -9,9 +9,11 @@ import {
   genderSplit, classHealth, collectionTrend,
 } from "@/lib/analytics";
 import { inr, fullName, todayISO, formatDate } from "@/lib/utils";
+import { SCHOOL_NAME } from "@/lib/branding";
+import { QuickActions } from "@/components/QuickActions";
 import {
   Users, GraduationCap, CalendarCheck, Wallet, ArrowRight, TrendingUp, School,
-  Megaphone, CircleSlash,
+  Megaphone, CircleSlash, BookOpen, Receipt, BarChart3, Settings,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -33,8 +35,21 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">School Overview</h1>
-        <p className="mt-1 text-sm text-slate-500">{formatDate(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · El-Node Pre-Primary</p>
+        <p className="mt-1 text-sm text-slate-500">{formatDate(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · {SCHOOL_NAME}</p>
       </div>
+
+      <QuickActions
+        actions={[
+          { label: "Students", href: "/admin/students", icon: Users, tone: "brand", hint: `${data.students.length} enrolled` },
+          { label: "Staff", href: "/admin/staff", icon: GraduationCap, tone: "violet", hint: `${activeStaff} active` },
+          { label: "Classes", href: "/admin/classes", icon: School, tone: "sky", hint: `${data.classes.length} sections` },
+          { label: "Subjects", href: "/admin/subjects", icon: BookOpen, tone: "green", hint: `${data.subjects.length} subjects` },
+          { label: "Fee Heads", href: "/admin/fee-heads", icon: Receipt, tone: "amber", hint: `${data.feeHeads.length} heads` },
+          { label: "Finance", href: "/admin/fees", icon: Wallet, tone: "green", hint: "Collection" },
+          { label: "Analytics", href: "/admin/analytics", icon: BarChart3, tone: "brand", hint: "Reports" },
+          { label: "Settings", href: "/admin/settings", icon: Settings, tone: "slate", hint: "Configuration" },
+        ]}
+      />
 
       {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
