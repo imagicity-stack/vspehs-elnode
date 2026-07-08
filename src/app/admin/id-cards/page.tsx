@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { useData } from "@/lib/store";
 import { IdCard } from "@/components/IdCard";
@@ -17,6 +18,9 @@ function IdCardsInner() {
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(params.get("student") ? [params.get("student") as string] : []),
   );
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Remove the body class once printing finishes.
   useEffect(() => {
@@ -103,17 +107,27 @@ function IdCardsInner() {
         )}
       </Card>
 
-      {/* Preview + print area */}
+      {/* On-screen preview */}
       {selectedStudents.length === 0 ? (
         <Card className="no-print p-8">
           <EmptyState icon={<CreditCard className="h-8 w-8" />} title="Select students to preview their ID cards" hint="Pick students above, then Download / Print." />
         </Card>
       ) : (
-        <div className="print-area flex flex-wrap justify-center gap-6 lg:justify-start">
+        <div className="no-print flex flex-wrap justify-center gap-6 lg:justify-start">
           {selectedStudents.map((s) => (
             <IdCard key={s.id} student={s} className={classNameOf(s.classId)} />
           ))}
         </div>
+      )}
+
+      {/* Isolated print portal — card-sized pages, no app chrome */}
+      {mounted && createPortal(
+        <div className="print-cards-portal">
+          {selectedStudents.map((s) => (
+            <IdCard key={s.id} student={s} className={classNameOf(s.classId)} />
+          ))}
+        </div>,
+        document.body,
       )}
     </div>
   );
