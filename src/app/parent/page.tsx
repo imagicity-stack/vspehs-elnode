@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useChild, ChildSwitcher } from "./child-context";
 import { useData } from "@/lib/store";
 import { Card, CardHeader, Badge, Stat, Progress, EmptyState } from "@/components/ui";
+import { QuickActions } from "@/components/QuickActions";
 import { Photo } from "@/components/Photo";
 import { studentAttendanceRate } from "@/lib/analytics";
 import { inr, fullName, formatDate, relativeDay } from "@/lib/utils";
@@ -46,6 +47,17 @@ export default function ParentDashboard() {
         </div>
         <ChildSwitcher />
       </div>
+
+      <QuickActions
+        actions={[
+          { label: "Attendance", href: "/parent/attendance", icon: CalendarCheck, tone: "brand", hint: `${att.rate}% present` },
+          { label: "Fees", href: "/parent/fees", icon: Wallet, tone: dues > 0 ? "amber" : "green", hint: dues > 0 ? `${inr(dues)} due` : "All paid" },
+          { label: "Daily Updates", href: "/parent/updates", icon: Smile, tone: "violet", hint: "Mood, meals, naps" },
+          { label: "Homework", href: "/parent/homework", icon: BookOpen, tone: "sky", hint: "Today's tasks" },
+          { label: "Report Card", href: "/parent/reportcard", icon: CalendarDays, tone: "green", hint: "Assessments" },
+          { label: "Circulars", href: "/parent/circulars", icon: Megaphone, tone: "rose", hint: "Notices & events" },
+        ]}
+      />
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

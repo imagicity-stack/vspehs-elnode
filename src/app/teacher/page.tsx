@@ -5,6 +5,7 @@ import { useTeacher, ClassSwitcher } from "./teacher-context";
 import { useData } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { Card, CardHeader, Stat, Badge, Progress, EmptyState } from "@/components/ui";
+import { QuickActions } from "@/components/QuickActions";
 import { attendanceForDate } from "@/lib/analytics";
 import { todayISO, formatDate } from "@/lib/utils";
 import {
@@ -49,13 +50,16 @@ export default function TeacherDashboard() {
         <Stat label="Daily Update" value={todayUpdate ? "Posted" : "Pending"} tone={todayUpdate ? "green" : "amber"} icon={<Camera className="h-5 w-5" />} hint="Class moments" />
       </div>
 
-      {/* Quick actions */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <QuickAction href="/teacher/attendance" icon={<CalendarCheck className="h-5 w-5" />} title={marked ? "Edit Attendance" : "Mark Attendance"} tone="bg-emerald-500" />
-        <QuickAction href="/teacher/updates" icon={<Camera className="h-5 w-5" />} title="Post Daily Update" tone="bg-violet-500" />
-        <QuickAction href="/teacher/homework" icon={<BookOpen className="h-5 w-5" />} title="Add Homework" tone="bg-sky-500" />
-        <QuickAction href="/teacher/exams" icon={<Star className="h-5 w-5" />} title="Enter Assessment" tone="bg-amber-500" />
-      </div>
+      <QuickActions
+        actions={[
+          { label: marked ? "Edit Attendance" : "Mark Attendance", href: "/teacher/attendance", icon: CalendarCheck, tone: "green", hint: marked ? `${todayAtt.rate}% present` : "Not marked" },
+          { label: "Daily Update", href: "/teacher/updates", icon: Camera, tone: "violet", hint: todayUpdate ? "Posted" : "Post now" },
+          { label: "Homework", href: "/teacher/homework", icon: BookOpen, tone: "sky", hint: "Add assignment" },
+          { label: "Assessment", href: "/teacher/exams", icon: Star, tone: "amber", hint: "Enter grades" },
+          { label: "Students", href: "/teacher/students", icon: Users, tone: "brand", hint: `${classStudents.length} in class` },
+          { label: "Tasks", href: "/teacher/tasks", icon: ClipboardCheck, tone: "slate", hint: `${doneTasks}/${myTasks.length} done` },
+        ]}
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Today's attendance breakdown */}
@@ -147,12 +151,3 @@ export default function TeacherDashboard() {
   );
 }
 
-function QuickAction({ href, icon, title, tone }: { href: string; icon: React.ReactNode; title: string; tone: string }) {
-  return (
-    <Link href={href} className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:shadow-soft">
-      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone} text-white`}>{icon}</div>
-      <span className="text-sm font-semibold text-slate-800">{title}</span>
-      <ArrowRight className="ml-auto h-4 w-4 text-slate-300 transition group-hover:text-brand-500" />
-    </Link>
-  );
-}
