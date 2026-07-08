@@ -143,7 +143,14 @@ export function ImageCropModal({
           src={src}
           alt={name}
           draggable={false}
-          style={{ position: "absolute", left, top, width: dispW, height: dispH, cursor: "grab" }}
+          style={{
+            position: "absolute", left, top,
+            width: dispW, height: dispH,
+            // Override Tailwind Preflight (img { max-width:100%; height:auto })
+            // so zoom scales uniformly instead of squeezing the width.
+            maxWidth: "none", maxHeight: "none",
+            cursor: "grab", userSelect: "none",
+          }}
         />
         {/* Circular guide — the card shows the photo as a circle */}
         <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "0 0 0 9999px rgba(15,23,42,0.35) inset", borderRadius: "50%" }} />
