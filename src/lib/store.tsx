@@ -356,16 +356,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addStudent: (st) => {
         // Deterministic id keyed on the admission number so the optimistic
         // client write and the server-side /api/students/create write resolve
-        // to the same Firestore document.
+        // to the same Firestore document. Never overwrite an existing student
+        // with the same admission number — uniqueness is enforced here too.
+        if (state.students.some((x) => x.admissionNo === st.admissionNo)) return;
         const id = `st-${st.admissionNo}`;
         const doc = { ...st, id };
-        setState((s) => {
-          const exists = s.students.some((x) => x.id === id);
-          return {
-            ...s,
-            students: exists ? s.students.map((x) => (x.id === id ? doc : x)) : [...s.students, doc],
-          };
-        });
+        setState((s) =>
+          s.students.some((x) => x.admissionNo === st.admissionNo) ? s : { ...s, students: [...s.students, doc] },
+        );
         writeDoc("students", doc);
       },
 

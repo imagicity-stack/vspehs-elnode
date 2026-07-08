@@ -333,6 +333,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
   const [provisioned, setProvisioned] = useState(0);
+  const [duplicates, setDuplicates] = useState(0);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -363,9 +364,14 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
       try { token = await auth.currentUser.getIdToken(); } catch { token = null; }
     }
 
-    let created = 0;
+    // Guard against duplicates within this batch even if two rows slipped
+    // through (e.g. differing whitespace) — track numbers as we go.
+    const usedNumbers = new Set(data.students.map((s) => s.admissionNo));
+    let created = 0;   // parent logins provisioned
+    let duplicates = 0; // rejected as duplicate (server 409 or seen in batch)
     const today = new Date().toISOString().slice(0, 10);
     for (const row of validRows) {
+      if (usedNumbers.has(row.admissionNo)) { duplicates++; continue; }
       rollTally[row.classId] = (rollTally[row.classId] ?? 0) + 1;
       const student: Student = {
         id: `st-${row.admissionNo}`,
@@ -380,9 +386,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
         admissionDate: today, transportRoute: "Self", status: "active",
       };
 
-      const { id: _id, ...withoutId } = student;
-      data.addStudent(withoutId);
-
+      // Firebase mode: the server decides — a 409 means duplicate, so skip it.
       if (token) {
         try {
           const res = await fetch("/api/students/create", {
@@ -391,14 +395,20 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
             // Everyone starts on the shared default password; parents change it later.
             body: JSON.stringify({ student, pin: DEFAULT_PASSWORD }),
           });
+          if (res.status === 409) { duplicates++; continue; }
           if (res.ok) created++;
         } catch {
-          /* leave provisioning count unchanged; student still saved locally */
+          /* provisioning failed for a non-duplicate reason; still save locally */
         }
       }
+
+      const { id: _id, ...withoutId } = student;
+      data.addStudent(withoutId);
+      usedNumbers.add(row.admissionNo);
     }
 
     setProvisioned(created);
+    setDuplicates(duplicates);
     setImporting(false);
     setDone(true);
   };
@@ -413,15 +423,20 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           </div>
           <h3 className="text-lg font-bold text-slate-900">Import complete</h3>
           <p className="mt-1 text-sm text-slate-500">
-            {validRows.length} student{validRows.length !== 1 ? "s" : ""} added successfully.
+            {validRows.length - duplicates} student{validRows.length - duplicates !== 1 ? "s" : ""} added successfully.
+            {duplicates > 0 && (
+              <span className="mt-1 block text-amber-600">
+                {duplicates} skipped — admission number already exists.
+              </span>
+            )}
           </p>
           {isFirebaseConfigured ? (
             <p className="mt-2 text-xs text-slate-500">
               {provisioned} parent login{provisioned !== 1 ? "s" : ""} provisioned
               {" "}(login = admission number, password = <span className="font-mono">{DEFAULT_PASSWORD}</span>).
-              {provisioned < validRows.length && (
+              {provisioned < validRows.length - duplicates && (
                 <span className="mt-1 block text-amber-600">
-                  {validRows.length - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
+                  {validRows.length - duplicates - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
                 </span>
               )}
             </p>
@@ -706,6 +721,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [busy, setBusy] = useState(false);
   const [photo, setPhoto] = useState<string | undefined>(undefined);
+  const [err, setErr] = useState("");
   const [created, setCreated] = useState<null | {
     admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
   }>(null);
@@ -716,6 +732,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   const save = async () => {
     if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
     setBusy(true);
+    setErr("");
     const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
     const pin = DEFAULT_PASSWORD;
     const studentId = `st-${form.admissionNo}`;
@@ -731,12 +748,11 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
       admissionDate: new Date().toISOString().slice(0, 10), transportRoute: "Self", status: "active",
     };
 
-    const { id: _id, ...withoutId } = student;
-    data.addStudent(withoutId);
-
     const email = admissionNoToEmail(form.admissionNo);
     let provision: "demo" | "created" | "failed" = "demo";
 
+    // In Firebase mode the server is the authority — check it FIRST so a
+    // duplicate is rejected before anything is written locally.
     if (isFirebaseConfigured && auth?.currentUser) {
       try {
         const token = await auth.currentUser.getIdToken();
@@ -745,11 +761,19 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ student, pin }),
         });
+        if (res.status === 409) {
+          setErr(`Admission number ${form.admissionNo} already exists — student was not added.`);
+          setBusy(false);
+          return;
+        }
         provision = res.ok ? "created" : "failed";
       } catch {
         provision = "failed";
       }
     }
+
+    const { id: _id, ...withoutId } = student;
+    data.addStudent(withoutId);
 
     setBusy(false);
     setCreated({ admissionNo: form.admissionNo, pin, email, provision });
@@ -845,6 +869,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             <Field label="Allergies (comma separated)"><input value={form.allergies} onChange={(e) => set("allergies", e.target.value)} placeholder="Peanuts, Dairy" className="input" /></Field>
           </div>
         </div>
+        {err && <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
         <button onClick={save} disabled={!valid || busy || data.classes.length === 0} className="btn-primary mt-5 w-full py-3">
           {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating login…</> : <>Add student & generate login</>}
         </button>
