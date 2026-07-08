@@ -75,12 +75,16 @@ body {
     background: white;
   }
   /* Print only the ID-card area — hide all portal chrome. */
+  /* Each side (front, back) prints on its own page. */
   .print-area .idcard {
     box-shadow: none !important;
-  }
-  .print-area .idcard-pair {
     break-inside: avoid;
     page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+  }
+  .print-area .idcard-pair {
+    display: block;
   }
   body.printing-cards * {
     visibility: hidden;
