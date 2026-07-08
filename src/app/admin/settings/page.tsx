@@ -1,18 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useData } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge } from "@/components/ui";
 import {
   isDemoMode, isFirebaseConfigured, PARENT_EMAIL_DOMAIN,
   FIREBASE_PROJECT_ID, FIREBASE_AUTH_DOMAIN, FIREBASE_DATABASE_ID, MISSING_FIREBASE_KEYS,
-  auth,
+  SUPERADMIN_EMAILS, auth,
 } from "@/lib/firebase";
 import { upsertDoc, removeDoc } from "@/lib/firestore";
+import { subscribeManagedAdmins, setManagedAdmins } from "@/lib/admins";
 import { SCHOOL_NAME, SCHOOL_LOCATION } from "@/lib/branding";
 import {
   Settings, Database, ShieldCheck, KeyRound, Mail, RefreshCw, CheckCircle2, AlertCircle,
-  Server, Cloud, Stethoscope, Loader2, XCircle,
+  Server, Cloud, Stethoscope, Loader2, XCircle, UserPlus, Trash2, Users,
 } from "lucide-react";
 
 export default function AdminSettings() {
@@ -67,6 +70,9 @@ export default function AdminSettings() {
           </div>
         </div>
       </Card>
+
+      {/* Super Admins */}
+      <SuperAdminManager />
 
       {/* Deployment / data source */}
       <Card>
@@ -130,6 +136,108 @@ function Field({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-slate-400">{label}</p>
       <p className="mt-0.5 font-semibold text-slate-800">{value}</p>
     </div>
+  );
+}
+
+// ── Super Admin manager ───────────────────────────────────────
+// Founder emails come from config (env). Additional Google admins are managed
+// live in Firestore (appConfig/superadmins) — added/removed here, no redeploy.
+function SuperAdminManager() {
+  const { user } = useAuth();
+  const [managed, setManaged] = useState<string[]>([]);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const founders = SUPERADMIN_EMAILS;
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    return subscribeManagedAdmins(setManaged);
+  }, []);
+
+  const emailClean = email.trim().toLowerCase();
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailClean);
+  const already = founders.includes(emailClean) || managed.includes(emailClean);
+
+  const add = async () => {
+    if (!emailValid || already) return;
+    setBusy(true);
+    try {
+      await setManagedAdmins([...managed, emailClean]);
+      setEmail("");
+      toast.success(`${emailClean} can now sign in as Super Admin.`);
+    } catch {
+      toast.error("Couldn't add admin — check your access and that the rules are deployed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (e: string) => {
+    if (e === user?.email?.toLowerCase()) { toast.info("You can't remove your own access."); return; }
+    if (!confirm(`Remove ${e} from Super Admins?`)) return;
+    try {
+      await setManagedAdmins(managed.filter((m) => m !== e));
+      toast.success(`${e} removed.`);
+    } catch {
+      toast.error("Couldn't remove admin.");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Super Admins" subtitle="Who can sign in with Google to this portal" icon={<ShieldCheck className="h-5 w-5" />} />
+      <div className="space-y-4 p-5">
+        <div>
+          <p className="label flex items-center gap-1.5"><Users className="h-3.5 w-3.5" /> Founders (from configuration)</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {founders.map((e) => (
+              <span key={e} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-600">
+                <ShieldCheck className="h-3.5 w-3.5 text-violet-500" /> {e}
+              </span>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-400">Set via <code className="rounded bg-slate-100 px-1">NEXT_PUBLIC_SUPERADMIN_EMAILS</code> — can&apos;t be changed here.</p>
+        </div>
+
+        {!isFirebaseConfigured ? (
+          <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-sm text-amber-800">
+            Managing admins in-app needs Firebase. In demo mode only the founder list applies.
+          </div>
+        ) : (
+          <div>
+            <p className="label">Added admins</p>
+            {managed.length === 0 ? (
+              <p className="mt-1 text-sm text-slate-400">No additional admins yet.</p>
+            ) : (
+              <div className="mt-1 space-y-1.5">
+                {managed.map((e) => (
+                  <div key={e} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2">
+                    <span className="flex items-center gap-2 text-sm text-slate-700"><Mail className="h-4 w-4 text-slate-400" /> {e}</span>
+                    <button onClick={() => remove(e)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Remove">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 flex gap-2">
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+                placeholder="new.admin@gmail.com"
+                className={`input ${email && !emailValid ? "border-rose-400 focus:ring-rose-300" : ""}`}
+              />
+              <button onClick={add} disabled={!emailValid || already || busy} className="btn-primary shrink-0">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><UserPlus className="h-4 w-4" /> Add</>}
+              </button>
+            </div>
+            {already && emailValid && <p className="mt-1 text-xs text-amber-600">That email is already a Super Admin.</p>}
+            <p className="mt-2 text-xs text-slate-400">They sign in via &ldquo;Super Admin — Continue with Google&rdquo;. Changes apply instantly — no redeploy.</p>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

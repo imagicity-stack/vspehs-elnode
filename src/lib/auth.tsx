@@ -22,6 +22,7 @@ import {
   auth, isDemoMode, admissionNoToEmail, isSuperAdminEmail, SUPERADMIN_EMAILS,
   PARENT_EMAIL_DOMAIN,
 } from "./firebase";
+import { isAllowedAdminEmail } from "./admins";
 import { AppUser, Role } from "./types";
 
 const SESSION_KEY = "elnode.session.v2";
@@ -147,7 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     provider.setCustomParameters({ prompt: "select_account" });
     const cred = await signInWithPopup(auth, provider);
     const email = cred.user.email;
-    if (!isSuperAdminEmail(email)) {
+    // Allowed if a founder (env) or a managed admin (Firestore list).
+    if (!(await isAllowedAdminEmail(email))) {
       await signOut(auth);
       throw new Error("This Google account is not authorised for admin access.");
     }
@@ -247,6 +249,11 @@ async function resolveFirebaseUser(fbUser: User): Promise<AppUser> {
       email,
       staffId: (claims.staffId as string) ?? fbUser.uid,
     };
+  }
+
+  // No claim and not a founder — could be a managed Google admin (Firestore).
+  if (await isAllowedAdminEmail(email)) {
+    return superAdminAppUser(email, fbUser.displayName ?? undefined, fbUser.photoURL ?? undefined);
   }
 
   // Unprovisioned account — give the most limited staff portal as a safe default.
