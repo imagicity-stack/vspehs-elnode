@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp } from "@/lib/firebaseAdmin";
-import { isSuperAdminEmail, DEFAULT_PASSWORD } from "@/lib/firebase";
+import { getAdminApp, isAuthorizedAdmin } from "@/lib/firebaseAdmin";
+import { DEFAULT_PASSWORD } from "@/lib/firebase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid auth token." }, { status: 401 });
   }
-  if (!isSuperAdminEmail(caller.email)) {
+  if (!(await isAuthorizedAdmin(app, caller.email))) {
     return NextResponse.json({ error: "Not authorised." }, { status: 403 });
   }
 

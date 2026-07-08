@@ -9,6 +9,8 @@
 // ─────────────────────────────────────────────────────────────
 
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { isSuperAdminEmail } from "./firebase";
 
 let app: App | null = null;
 
@@ -29,4 +31,21 @@ export function getAdminApp(): App | null {
 
 export function isAdminConfigured(): boolean {
   return getAdminApp() !== null;
+}
+
+/**
+ * Authorises a Super Admin caller: a founder (env allowlist) or a managed
+ * admin (appConfig/superadmins in Firestore). Used by protected API routes so
+ * admins added in-app work without a redeploy.
+ */
+export async function isAuthorizedAdmin(app: App, email?: string | null): Promise<boolean> {
+  if (isSuperAdminEmail(email)) return true;
+  if (!email) return false;
+  try {
+    const snap = await getFirestore(app).collection("appConfig").doc("superadmins").get();
+    const emails = (((snap.data()?.emails as string[]) ?? [])).map((e) => String(e).toLowerCase());
+    return emails.includes(email.toLowerCase());
+  } catch {
+    return false;
+  }
 }
