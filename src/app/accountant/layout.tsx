@@ -17,7 +17,7 @@ const nav: NavItem[] = [
 
 export default function AccountantLayout({ children }: { children: React.ReactNode }) {
   return (
-    <PortalShell role="accountant" nav={nav}>
+    <PortalShell role="accountant" nav={nav} alsoAllow={["superadmin"]}>
       {children}
     </PortalShell>
   );

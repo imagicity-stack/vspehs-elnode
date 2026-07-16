@@ -21,7 +21,7 @@ export function CollectModal({ invoice, onClose }: { invoice: Invoice; onClose: 
   const collect = () => {
     const p = data.recordPayment({
       invoiceId: invoice.id, studentId: invoice.studentId, amount, method,
-      collectedBy: user?.staffId ?? "s-ravi", reference: ref || undefined,
+      collectedBy: user?.staffId ?? user?.uid ?? "counter", reference: ref || undefined,
     });
     setPaid(p);
   };
