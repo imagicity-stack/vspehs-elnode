@@ -29,8 +29,8 @@ const roleLabel: Record<Role, string> = {
 };
 
 export function PortalShell({
-  role, nav, children,
-}: { role: Role; nav: NavItem[]; children: React.ReactNode }) {
+  role, nav, children, alsoAllow,
+}: { role: Role; nav: NavItem[]; children: React.ReactNode; alsoAllow?: Role[] }) {
   const { user, loading, logout, canChangePassword } = useAuth();
   const { loading: dataLoading } = useData();
   const router = useRouter();
@@ -39,12 +39,17 @@ export function PortalShell({
   const [menu, setMenu] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
 
+  // A user may view their own portal; a Super Admin may also view portals that
+  // opt in via `alsoAllow` (e.g. Accounts) so they can perform those actions.
+  const allowed = !!user && (user.role === role || (alsoAllow?.includes(user.role) ?? false));
+  const crossViewing = !!user && user.role !== role;
+
   React.useEffect(() => {
     if (!loading && !user) router.replace("/login");
-    else if (!loading && user && user.role !== role) router.replace(portalHome[user.role]);
-  }, [loading, user, role, router]);
+    else if (!loading && user && !allowed) router.replace(portalHome[user.role]);
+  }, [loading, user, allowed, router]);
 
-  if (loading || !user || user.role !== role) {
+  if (loading || !user || !allowed) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3 text-slate-400">
@@ -195,6 +200,13 @@ export function PortalShell({
             </div>
           </div>
         </header>
+
+        {crossViewing && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:px-6">
+            <span>You&apos;re viewing the <strong>{roleLabel[role]}</strong> as Super Admin.</span>
+            <Link href={portalHome[user.role]} className="font-semibold text-amber-900 hover:underline">← Back to my portal</Link>
+          </div>
+        )}
 
         <main className="mx-auto max-w-7xl animate-fade-in px-4 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
       </div>

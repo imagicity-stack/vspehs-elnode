@@ -11,7 +11,8 @@ import {
   isRazorpayConfigured, RAZORPAY_KEY_ID, loadRazorpayScript,
   createRazorpayOrder, verifyRazorpayPayment,
 } from "@/lib/razorpay";
-import { Wallet, Receipt, CheckCircle2, IndianRupee, X, ShieldCheck, Loader2 } from "lucide-react";
+import { downloadReceipt } from "@/lib/receipt";
+import { Wallet, Receipt, CheckCircle2, IndianRupee, X, ShieldCheck, Loader2, Download } from "lucide-react";
 import { Invoice, InvoiceStatus, PaymentMethod } from "@/lib/types";
 
 const statusTone: Record<InvoiceStatus, "green" | "amber" | "red" | "sky"> = {
@@ -91,7 +92,7 @@ export default function ParentFees() {
           <Table>
             <thead>
               <tr className="border-b border-slate-100">
-                <Th>Receipt</Th><Th>Date</Th><Th>Method</Th><Th>Reference</Th><Th>Amount</Th>
+                <Th>Receipt</Th><Th>Date</Th><Th>Method</Th><Th>Reference</Th><Th>Amount</Th><Th></Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -102,6 +103,20 @@ export default function ParentFees() {
                   <Td className="uppercase">{p.method}</Td>
                   <Td className="text-slate-500">{p.reference ?? "—"}</Td>
                   <Td className="font-semibold text-emerald-600">{inr(p.amount)}</Td>
+                  <Td>
+                    <button
+                      onClick={() => downloadReceipt({
+                        payment: p,
+                        invoice: data.invoices.find((i) => i.id === p.invoiceId),
+                        student: child,
+                        className: data.classes.find((c) => c.id === child.classId)?.name,
+                      })}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                      title="Download receipt"
+                    >
+                      <Download className="h-3.5 w-3.5" /> PDF
+                    </button>
+                  </Td>
                 </tr>
               ))}
             </tbody>
