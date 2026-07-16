@@ -5,9 +5,10 @@ import { useData } from "@/lib/store";
 import { Card, CardHeader, Badge, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
 import { CollectModal } from "../CollectModal";
 import { paymentMethodSplit } from "@/lib/analytics";
+import { downloadReceipt } from "@/lib/receipt";
 import { inr, fullName, formatDate, todayISO } from "@/lib/utils";
-import { Invoice } from "@/lib/types";
-import { Receipt, Plus, Wallet, Search } from "lucide-react";
+import { Invoice, Payment } from "@/lib/types";
+import { Receipt, Plus, Wallet, Search, Download } from "lucide-react";
 
 export default function AccountantPayments() {
   const data = useData();
@@ -21,6 +22,18 @@ export default function AccountantPayments() {
   const monthTotal = payments.reduce((s, p) => s + p.amount, 0);
   const methods = paymentMethodSplit(payments);
   const topMethod = methods.sort((a, b) => b.value - a.value)[0];
+
+  const dl = (p: Payment) => {
+    const student = data.students.find((s) => s.id === p.studentId);
+    const staff = data.staff.find((s) => s.id === p.collectedBy);
+    downloadReceipt({
+      payment: p,
+      invoice: data.invoices.find((i) => i.id === p.invoiceId),
+      student,
+      className: data.classes.find((c) => c.id === student?.classId)?.name,
+      collectedByName: staff?.name,
+    });
+  };
 
   const pendingInvoices = data.invoices
     .filter((i) => i.status !== "paid")
@@ -54,7 +67,7 @@ export default function AccountantPayments() {
           <Table>
             <thead>
               <tr className="border-b border-slate-100">
-                <Th>Receipt</Th><Th>Student</Th><Th>Date</Th><Th>Method</Th><Th>Reference</Th><Th>Amount</Th>
+                <Th>Receipt</Th><Th>Student</Th><Th>Date</Th><Th>Method</Th><Th>Reference</Th><Th>Amount</Th><Th></Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -68,6 +81,15 @@ export default function AccountantPayments() {
                     <Td><Badge tone="slate">{p.method.toUpperCase()}</Badge></Td>
                     <Td className="text-slate-500">{p.reference ?? "—"}</Td>
                     <Td className="font-bold text-emerald-600">{inr(p.amount)}</Td>
+                    <Td>
+                      <button
+                        onClick={() => dl(p)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                        title="Download receipt"
+                      >
+                        <Download className="h-3.5 w-3.5" /> PDF
+                      </button>
+                    </Td>
                   </tr>
                 );
               })}
