@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useChild, ChildSwitcher } from "../child-context";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Stat, EmptyState, Table, Th, Td, Button } from "@/components/ui";
+import { Card, CardHeader, Badge, Stat, EmptyState, Table, Th, Td, Button, Loading } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { inr, formatDate, fullName } from "@/lib/utils";
+import { invoiceStatus, invoiceDue } from "@/lib/analytics";
+import { inr, formatDate, fullName, todayISO } from "@/lib/utils";
 import { isDemoMode } from "@/lib/firebase";
 import {
   isRazorpayConfigured, RAZORPAY_KEY_ID, loadRazorpayScript,
@@ -23,17 +24,25 @@ export default function ParentFees() {
   const { child } = useChild();
   const data = useData();
   const [payFor, setPayFor] = useState<Invoice | null>(null);
-  if (!child) return <EmptyState title="No child linked." />;
+  if (!child) {
+    return data.loading ? <Loading /> : (
+      <EmptyState
+        title="No child linked to this login"
+        hint="The parent account is missing its student link. Ask the school office to re-add the admission number so the link is restored."
+      />
+    );
+  }
 
   // Only outstanding invoices are shown here — once fully paid (online or
   // collected by the accountant) they drop off and live in Payment Receipts.
+  const today = todayISO();
   const invoices = data.invoices
-    .filter((i) => i.studentId === child.id && i.status !== "paid")
+    .filter((i) => i.studentId === child.id && invoiceStatus(i, today) !== "paid")
     .sort((a, b) => b.issuedDate.localeCompare(a.issuedDate));
   const receipts = data.payments
     .filter((p) => p.studentId === child.id)
     .sort((a, b) => b.date.localeCompare(a.date));
-  const totalDue = invoices.filter((i) => i.status !== "paid").reduce((s, i) => s + (i.total - i.paid), 0);
+  const totalDue = invoices.reduce((s, i) => s + invoiceDue(i), 0);
   const paidYtd = receipts.reduce((s, p) => s + p.amount, 0);
 
   return (
@@ -54,7 +63,9 @@ export default function ParentFees() {
 
       <Card>
         <CardHeader title="Outstanding Fees" icon={<IndianRupee className="h-5 w-5" />} />
-        {invoices.length === 0 ? (
+        {data.loading && data.invoices.length === 0 ? (
+          <div className="p-5"><Loading label="Loading fees…" /></div>
+        ) : invoices.length === 0 ? (
           <div className="p-5"><EmptyState title="No outstanding fees 🎉" hint="Paid invoices appear under Payment Receipts below." /></div>
         ) : (
           <Table>
@@ -71,11 +82,9 @@ export default function ParentFees() {
                   <Td className="font-semibold">{inr(inv.total)}</Td>
                   <Td className="text-slate-500">{inr(inv.paid)}</Td>
                   <Td>{formatDate(inv.dueDate)}</Td>
-                  <Td><Badge tone={statusTone[inv.status]}>{inv.status}</Badge></Td>
+                  <Td><Badge tone={statusTone[invoiceStatus(inv, today)]}>{invoiceStatus(inv, today)}</Badge></Td>
                   <Td>
-                    {inv.status !== "paid" && (
-                      <button onClick={() => setPayFor(inv)} className="btn-primary px-3 py-1.5 text-xs">Pay {inr(inv.total - inv.paid)}</button>
-                    )}
+                    <button onClick={() => setPayFor(inv)} className="btn-primary px-3 py-1.5 text-xs">Pay {inr(invoiceDue(inv))}</button>
                   </Td>
                 </tr>
               ))}
@@ -135,7 +144,7 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
   const { recordPayment, students } = useData();
   const { user } = useAuth();
   const student = students.find((s) => s.id === invoice.studentId);
-  const remaining = invoice.total - invoice.paid;
+  const remaining = invoiceDue(invoice);
   const [amount, setAmount] = useState(remaining);
   const [method, setMethod] = useState<PaymentMethod>("upi");
   const [done, setDone] = useState(false);
@@ -234,10 +243,10 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
             <h3 className="text-lg font-bold text-slate-900">Pay Fees</h3>
             <p className="text-sm text-slate-500">{invoice.invoiceNo} · {invoice.period}</p>
             <div className="mt-4 space-y-2 rounded-xl bg-slate-50 p-4 text-sm">
-              {invoice.lines.map((l) => (
-                <div key={l.feeHeadId} className="flex justify-between text-slate-600"><span>{l.name}</span><span>{inr(l.amount)}</span></div>
+              {(invoice.lines ?? []).map((l, idx) => (
+                <div key={l.feeHeadId ?? idx} className="flex justify-between text-slate-600"><span>{l.name}</span><span>{inr(l.amount)}</span></div>
               ))}
-              {invoice.discount > 0 && <div className="flex justify-between text-emerald-600"><span>Concession</span><span>− {inr(invoice.discount)}</span></div>}
+              {invoice.discount > 0 &&<div className="flex justify-between text-emerald-600"><span>Concession</span><span>− {inr(invoice.discount)}</span></div>}
               <div className="flex justify-between border-t border-slate-200 pt-2 font-semibold text-slate-900"><span>Outstanding</span><span>{inr(remaining)}</span></div>
             </div>
             <div className="mt-4">

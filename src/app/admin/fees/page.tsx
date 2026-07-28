@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Stat, Badge, Avatar, Progress, EmptyState } from "@/components/ui";
+import { Card, CardHeader, Stat, Badge, Avatar, Progress, EmptyState, Loading } from "@/components/ui";
 import { TrendArea, Bars, Donut } from "@/components/charts";
 import {
   collectionSummary, collectionTrend, feeByCategory, paymentMethodSplit, classHealth,
+  invoiceStatus, invoiceDue,
 } from "@/lib/analytics";
 import { inr, fullName, todayISO } from "@/lib/utils";
 import { Wallet, TrendingUp, AlertTriangle, IndianRupee, ArrowRight, Receipt } from "lucide-react";
@@ -13,15 +14,15 @@ import { Wallet, TrendingUp, AlertTriangle, IndianRupee, ArrowRight, Receipt } f
 export default function AdminFinance() {
   const data = useData();
   const today = todayISO();
-  const summary = collectionSummary(data.invoices);
+  const summary = collectionSummary(data.invoices, today);
   const trend = collectionTrend(data.payments, 14);
   const byCategory = feeByCategory(data.invoices).map((c) => ({ label: c.name, Amount: c.value }));
   const methods = paymentMethodSplit(data.payments);
   const health = classHealth(data.students, data.classes, data.attendance, data.invoices, today);
 
   const topDefaulters = data.invoices
-    .filter((i) => i.status !== "paid")
-    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: i.total - i.paid }))
+    .filter((i) => invoiceStatus(i, today) !== "paid")
+    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: invoiceDue(i) }))
     .filter((d) => d.student && d.due > 0)
     .sort((a, b) => b.due - a.due)
     .slice(0, 5);
@@ -85,7 +86,16 @@ export default function AdminFinance() {
       <Card>
         <CardHeader title="Top Defaulters" icon={<AlertTriangle className="h-5 w-5" />} action={<Link href="/accountant/reports" className="btn-soft text-xs">Full report <ArrowRight className="h-3.5 w-3.5" /></Link>} />
         <div className="divide-y divide-slate-100">
-          {topDefaulters.length === 0 && <div className="p-5"><EmptyState title="All fees collected 🎉" /></div>}
+          {data.loading && data.invoices.length === 0 ? (
+            <div className="p-5"><Loading label="Loading invoices…" /></div>
+          ) : topDefaulters.length === 0 && (
+            <div className="p-5">
+              <EmptyState
+                title={data.invoices.length === 0 ? "No invoices raised yet" : "All fees collected 🎉"}
+                hint={data.invoices.length === 0 ? "Fees are billed from the Accounts portal." : undefined}
+              />
+            </div>
+          )}
           {topDefaulters.map(({ inv, student, due }) => (
             <div key={inv.id} className="flex items-center justify-between px-5 py-3">
               <div className="flex items-center gap-3">
@@ -97,7 +107,7 @@ export default function AdminFinance() {
               </div>
               <div className="text-right">
                 <p className="text-sm font-bold text-rose-600">{inr(due)}</p>
-                <Badge tone={inv.status === "overdue" ? "red" : "amber"}>{inv.status}</Badge>
+                <Badge tone={invoiceStatus(inv, today) === "overdue" ? "red" : "amber"}>{invoiceStatus(inv, today)}</Badge>
               </div>
             </div>
           ))}

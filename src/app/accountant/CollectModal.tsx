@@ -5,6 +5,7 @@ import { useData } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { downloadReceipt } from "@/lib/receipt";
 import { Invoice, PaymentMethod, Payment } from "@/lib/types";
+import { invoiceDue } from "@/lib/analytics";
 import { inr, fullName } from "@/lib/utils";
 import { CheckCircle2, X, Download } from "lucide-react";
 
@@ -12,7 +13,7 @@ export function CollectModal({ invoice, onClose }: { invoice: Invoice; onClose: 
   const data = useData();
   const { user } = useAuth();
   const student = data.students.find((s) => s.id === invoice.studentId);
-  const remaining = invoice.total - invoice.paid;
+  const remaining = invoiceDue(invoice);
   const [amount, setAmount] = useState(remaining);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [ref, setRef] = useState("");

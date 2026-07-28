@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Table, Th, Td, Stat, EmptyState } from "@/components/ui";
+import { Card, CardHeader, Badge, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
 import { CollectModal } from "../CollectModal";
-import { paymentMethodSplit } from "@/lib/analytics";
+import { paymentMethodSplit, invoiceDue } from "@/lib/analytics";
 import { downloadReceipt } from "@/lib/receipt";
 import { inr, fullName, formatDate, todayISO } from "@/lib/utils";
 import { Invoice, Payment } from "@/lib/types";
@@ -61,7 +61,9 @@ export default function AccountantPayments() {
 
       <Card>
         <CardHeader title="Receipt Ledger" icon={<Receipt className="h-5 w-5" />} />
-        {payments.length === 0 ? (
+        {data.loading && payments.length === 0 ? (
+          <div className="p-5"><Loading label="Loading receipts…" /></div>
+        ) : payments.length === 0 ? (
           <div className="p-5"><EmptyState title="No payments recorded yet" /></div>
         ) : (
           <Table>
@@ -121,7 +123,7 @@ export default function AccountantPayments() {
                       <p className="text-sm font-semibold text-slate-800">{st ? fullName(st) : "—"}</p>
                       <p className="text-xs text-slate-400">{inv.invoiceNo} · {inv.period}</p>
                     </div>
-                    <span className="text-sm font-bold text-amber-600">{inr(inv.total - inv.paid)}</span>
+                    <span className="text-sm font-bold text-amber-600">{inr(invoiceDue(inv))}</span>
                   </button>
                 );
               })}

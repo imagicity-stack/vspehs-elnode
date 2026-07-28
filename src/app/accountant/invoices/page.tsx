@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, EmptyState } from "@/components/ui";
+import { Card, CardHeader, Badge, Avatar, Table, Th, Td, EmptyState, Loading } from "@/components/ui";
 import { CollectModal } from "../CollectModal";
 import { RaiseFeesModal } from "../RaiseFeesModal";
-import { inr, fullName, formatDate } from "@/lib/utils";
+import { invoiceStatus, invoiceDue } from "@/lib/analytics";
+import { inr, fullName, formatDate, todayISO } from "@/lib/utils";
 import { Invoice, InvoiceStatus } from "@/lib/types";
 import { FileText, Search, CalendarPlus } from "lucide-react";
 
@@ -21,8 +22,9 @@ export default function AccountantInvoices() {
   const [collect, setCollect] = useState<Invoice | null>(null);
   const [raiseOpen, setRaiseOpen] = useState(false);
 
+  const today = todayISO();
   const rows = data.invoices
-    .filter((i) => filter === "all" || i.status === filter)
+    .filter((i) => filter === "all" || invoiceStatus(i, today) === filter)
     .filter((i) => {
       if (!q) return true;
       const st = data.students.find((s) => s.id === i.studentId);
@@ -60,18 +62,27 @@ export default function AccountantInvoices() {
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search student or invoice…" className="input pl-9 sm:w-64" />
           </div>
         </div>
-        {rows.length === 0 ? (
-          <div className="p-5"><EmptyState icon={<FileText className="h-8 w-8" />} title="No invoices match" /></div>
+        {data.loading && data.invoices.length === 0 ? (
+          <div className="p-5"><Loading label="Loading invoices…" /></div>
+        ) : rows.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              icon={<FileText className="h-8 w-8" />}
+              title={data.invoices.length === 0 ? "No invoices yet" : "No invoices match"}
+              hint={data.invoices.length === 0 ? "Use “Raise Monthly Fees” to bill the current period." : undefined}
+            />
+          </div>
         ) : (
           <Table>
             <thead>
               <tr className="border-b border-slate-100">
-                <Th>Student</Th><Th>Invoice</Th><Th>Period</Th><Th>Total</Th><Th>Paid</Th><Th>Due</Th><Th>Status</Th><Th></Th>
+                <Th>Student</Th><Th>Invoice</Th><Th>Period</Th><Th>Total</Th><Th>Paid</Th><Th>Outstanding</Th><Th>Due Date</Th><Th>Status</Th><Th></Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {rows.map((inv) => {
                 const st = data.students.find((s) => s.id === inv.studentId);
+                const status = invoiceStatus(inv, today);
                 return (
                   <tr key={inv.id} className="hover:bg-slate-50">
                     <Td>
@@ -84,10 +95,11 @@ export default function AccountantInvoices() {
                     <Td>{inv.period}</Td>
                     <Td className="font-semibold">{inr(inv.total)}</Td>
                     <Td className="text-slate-500">{inr(inv.paid)}</Td>
+                    <Td className={invoiceDue(inv) > 0 ? "font-semibold text-rose-600" : "text-slate-400"}>{inr(invoiceDue(inv))}</Td>
                     <Td>{formatDate(inv.dueDate)}</Td>
-                    <Td><Badge tone={statusTone[inv.status]}>{inv.status}</Badge></Td>
+                    <Td><Badge tone={statusTone[status]}>{status}</Badge></Td>
                     <Td>
-                      {inv.status !== "paid" && (
+                      {status !== "paid" && (
                         <button onClick={() => setCollect(inv)} className="btn-primary px-3 py-1.5 text-xs">Collect</button>
                       )}
                     </Td>
