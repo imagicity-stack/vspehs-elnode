@@ -114,6 +114,7 @@ export default function AdminSettings() {
       {/* Diagnostics */}
       <FirestoreDiagnostics />
       <CollectionHealthTable />
+      <FirestoreScan />
 
       {/* Danger / demo controls */}
       {isDemoMode && (
@@ -382,6 +383,176 @@ function CollectionHealthTable() {
           and database in the Firebase console, and that the collection name matches exactly
           (names are case-sensitive).
         </p>
+      </div>
+    </Card>
+  );
+}
+
+// ── Firestore scan ────────────────────────────────────────────
+// The browser cannot list collections, and the rules only grant reads on the
+// paths the app knows — so records stored under a different collection name or
+// in another database are invisible with no error. This asks the server (Admin
+// SDK) what is really there.
+interface ScanCollection {
+  name: string;
+  count: number;
+  sampleFields?: string[];
+  sampleId?: string;
+  subcollections?: string[];
+}
+interface ScanDatabase {
+  id: string;
+  isAppDatabase: boolean;
+  collections: ScanCollection[];
+  error?: string;
+}
+interface ScanResult {
+  projectId: string;
+  appDatabaseId: string;
+  expected: string[];
+  databases: ScanDatabase[];
+}
+
+function FirestoreScan() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [scan, setScan] = useState<ScanResult | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    setScan(null);
+    try {
+      const fbUser = auth?.currentUser;
+      if (!fbUser) throw new Error("Sign in as Super Admin first.");
+      const res = await fetch("/api/diagnostics/collections", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await fbUser.getIdToken()}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Scan failed.");
+      setScan(json as ScanResult);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Scan failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="Scan Firestore"
+        subtitle="What the database actually contains, read with the Admin SDK"
+        icon={<Server className="h-5 w-5" />}
+      />
+      <div className="space-y-4 p-5">
+        <p className="text-sm text-slate-500">
+          Use this when records exist in the Firebase console but a screen is empty. It lists every
+          collection in the project — including ones the app doesn&apos;t read, which is what a
+          renamed or nested collection looks like from the browser.
+        </p>
+
+        <button onClick={run} disabled={busy} className="btn-primary">
+          {busy
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning…</>
+            : <><Server className="h-4 w-4" /> Scan Firestore</>}
+        </button>
+
+        {error && (
+          <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 p-4 text-sm text-rose-800">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        {scan && scan.databases.map((db) => {
+          const withDocs = db.collections.filter((c) => c.count > 0);
+          const unknown = withDocs.filter((c) => !scan.expected.includes(c.name));
+          const nested = db.collections.filter((c) => c.subcollections?.length);
+          return (
+            <div key={db.id} className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold text-slate-800">
+                  Database &quot;{db.id}&quot; · project &quot;{scan.projectId}&quot;
+                </p>
+                <Badge tone={db.isAppDatabase ? "green" : "slate"}>
+                  {db.isAppDatabase ? "the app reads this one" : "not read by the app"}
+                </Badge>
+              </div>
+
+              {db.error ? (
+                <p className="text-sm text-rose-600">{db.error}</p>
+              ) : withDocs.length === 0 ? (
+                <p className="text-sm text-slate-500">No collections with documents.</p>
+              ) : (
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {withDocs.map((c) => (
+                    <div key={c.name} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                      <span className={scan.expected.includes(c.name) ? "text-slate-700" : "font-semibold text-amber-700"}>
+                        {c.name}
+                      </span>
+                      <span className="shrink-0 text-slate-500">{c.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!db.isAppDatabase && withDocs.length > 0 && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Your data is in this database, but the app reads &quot;{scan.appDatabaseId}&quot;. Set{" "}
+                  <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_FIREBASE_DATABASE_ID</code> to
+                  &quot;{db.id}&quot; (or leave it unset for the default) and redeploy.
+                </p>
+              )}
+
+              {unknown.length > 0 && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Holds documents the app never reads: <strong>{unknown.map((c) => c.name).join(", ")}</strong>.
+                  Collection names are case-sensitive and must match exactly — the app reads{" "}
+                  <code className="rounded bg-amber-100 px-1">invoices</code>,{" "}
+                  <code className="rounded bg-amber-100 px-1">payments</code>,{" "}
+                  <code className="rounded bg-amber-100 px-1">feeHeads</code>,{" "}
+                  <code className="rounded bg-amber-100 px-1">concessions</code>. Rename or copy the
+                  documents to those names.
+                </p>
+              )}
+
+              {nested.length > 0 && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Nested subcollections found:{" "}
+                  {nested.map((c) => `${c.name}/${c.sampleId}/${c.subcollections!.join(", ")}`).join(" · ")}.
+                  The app only reads <em>root</em> collections, so records stored under a parent
+                  document are never loaded — move them to the root.
+                </p>
+              )}
+
+              {db.isAppDatabase && (
+                <details className="text-sm text-slate-500">
+                  <summary className="cursor-pointer font-medium text-slate-600">Document fields (finance)</summary>
+                  <div className="mt-2 space-y-1">
+                    {["invoices", "payments", "feeHeads", "concessions"].map((name) => {
+                      const c = db.collections.find((x) => x.name === name);
+                      return (
+                        <p key={name}>
+                          <strong>{name}:</strong>{" "}
+                          {c?.sampleFields?.length ? c.sampleFields.join(", ") : "— no documents —"}
+                        </p>
+                      );
+                    })}
+                    <p className="mt-2 text-xs text-slate-400">
+                      Invoices need <code>studentId</code>, <code>total</code>, <code>paid</code>,{" "}
+                      <code>status</code>, <code>dueDate</code>, <code>lines</code>; payments need{" "}
+                      <code>studentId</code>, <code>amount</code>, <code>date</code>, <code>method</code>.
+                      A <code>studentId</code> that doesn&apos;t match a student document id keeps an
+                      invoice out of every per-student view.
+                    </p>
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Card>
   );

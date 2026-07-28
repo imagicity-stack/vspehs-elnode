@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp } from "@/lib/firebaseAdmin";
+import { getAdminApp, adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
   const app = getAdminApp();
   if (app && body.invoiceId && body.studentId && body.amount && body.amount > 0) {
     try {
-      const db = getFirestore(app);
+      const db = adminDb(app);
       receiptNo = `RC-${5000 + Math.floor(Math.random() * 4000)}`;
       const paymentId = `pay-${razorpay_payment_id}`;
       await db.collection("payments").doc(paymentId).set({

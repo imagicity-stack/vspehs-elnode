@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp, isAuthorizedAdmin } from "@/lib/firebaseAdmin";
+import { getAdminApp, isAuthorizedAdmin, adminDb } from "@/lib/firebaseAdmin";
 import { DEFAULT_PASSWORD } from "@/lib/firebase";
 
 export const runtime = "nodejs";
@@ -52,7 +51,7 @@ export async function POST(req: Request) {
   const password = String(body.pin || DEFAULT_PASSWORD);
   const displayName = `${student.firstName} ${student.lastName} (Parent)`.trim();
   const adminAuth = getAuth(app);
-  const db = getFirestore(app);
+  const db = adminDb(app);
 
   // 3) Enforce uniqueness — never overwrite an existing student. A duplicate
   //    admission number is rejected (409) at the source, whether it already

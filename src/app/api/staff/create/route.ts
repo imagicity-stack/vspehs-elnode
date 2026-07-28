@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp, isAuthorizedAdmin } from "@/lib/firebaseAdmin";
+import { getAdminApp, isAuthorizedAdmin, adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +79,7 @@ export async function POST(req: Request) {
 
   // 4) Role claim + Firestore documents.
   await adminAuth.setCustomUserClaims(uid, { role, staffId: staff.id });
-  const db = getFirestore(app);
+  const db = adminDb(app);
   await db.collection("staff").doc(staff.id).set(staff, { merge: true });
   await db.collection("appUsers").doc(uid).set(
     {
