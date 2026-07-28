@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Stat, Badge, Avatar, Progress, EmptyState } from "@/components/ui";
+import { Card, CardHeader, Stat, Badge, Avatar, Progress, EmptyState, Loading } from "@/components/ui";
 import { QuickActions } from "@/components/QuickActions";
 import { TrendArea, Donut, Bars } from "@/components/charts";
 import {
   collectionSummary, collectionTrend, feeByCategory, paymentMethodSplit,
+  invoiceStatus, invoiceDue,
 } from "@/lib/analytics";
-import { inr, fullName, formatDate } from "@/lib/utils";
+import { inr, fullName, formatDate, todayISO } from "@/lib/utils";
 import {
   Wallet, TrendingUp, AlertTriangle, Receipt, IndianRupee, ArrowRight, CircleSlash,
   Users, FileText, BadgePercent, BarChart3,
@@ -16,15 +17,16 @@ import {
 
 export default function AccountantDashboard() {
   const data = useData();
-  const summary = collectionSummary(data.invoices);
+  const today = todayISO();
+  const summary = collectionSummary(data.invoices, today);
   const trend = collectionTrend(data.payments, 14);
   const byCategory = feeByCategory(data.invoices);
   const methods = paymentMethodSplit(data.payments);
 
   const defaulters = data.invoices
-    .filter((i) => i.status === "overdue" || i.status === "pending")
-    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: i.total - i.paid }))
-    .filter((d) => d.student)
+    .filter((i) => invoiceStatus(i, today) !== "paid")
+    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: invoiceDue(i) }))
+    .filter((d) => d.student && d.due > 0)
     .sort((a, b) => b.due - a.due)
     .slice(0, 6);
 
@@ -80,7 +82,16 @@ export default function AccountantDashboard() {
             action={<Link href="/accountant/reports" className="btn-soft text-xs">Full report <ArrowRight className="h-3.5 w-3.5" /></Link>}
           />
           <div className="divide-y divide-slate-100">
-            {defaulters.length === 0 && <div className="p-5"><EmptyState title="No dues — fully collected 🎉" /></div>}
+            {data.loading && data.invoices.length === 0 ? (
+              <div className="p-5"><Loading label="Loading invoices…" /></div>
+            ) : defaulters.length === 0 && (
+              <div className="p-5">
+                <EmptyState
+                  title={data.invoices.length === 0 ? "No invoices raised yet" : "No dues — fully collected 🎉"}
+                  hint={data.invoices.length === 0 ? "Raise fees from Invoices or Fee Structure to start billing." : undefined}
+                />
+              </div>
+            )}
             {defaulters.map(({ inv, student, due }) => (
               <div key={inv.id} className="flex items-center justify-between px-5 py-3">
                 <div className="flex items-center gap-3">
@@ -92,7 +103,7 @@ export default function AccountantDashboard() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-rose-600">{inr(due)}</p>
-                  <Badge tone={inv.status === "overdue" ? "red" : "amber"}>{inv.status}</Badge>
+                  <Badge tone={invoiceStatus(inv, today) === "overdue" ? "red" : "amber"}>{invoiceStatus(inv, today)}</Badge>
                 </div>
               </div>
             ))}

@@ -1,14 +1,15 @@
 "use client";
 
 import { useData } from "@/lib/store";
-import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, Progress, EmptyState } from "@/components/ui";
-import { collectionSummary } from "@/lib/analytics";
-import { inr, fullName, formatDate } from "@/lib/utils";
+import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, Progress, EmptyState, Loading } from "@/components/ui";
+import { collectionSummary, invoiceStatus, invoiceDue } from "@/lib/analytics";
+import { inr, fullName, formatDate, todayISO } from "@/lib/utils";
 import { BarChart3, Printer, AlertTriangle, Wallet } from "lucide-react";
 
 export default function PendingReport() {
   const data = useData();
-  const summary = collectionSummary(data.invoices);
+  const today = todayISO();
+  const summary = collectionSummary(data.invoices, today);
 
   // class-wise dues
   const byClass = data.classes.map((c) => {
@@ -21,8 +22,8 @@ export default function PendingReport() {
   });
 
   const defaulters = data.invoices
-    .filter((i) => i.status !== "paid")
-    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: i.total - i.paid }))
+    .filter((i) => invoiceStatus(i, today) !== "paid")
+    .map((i) => ({ inv: i, student: data.students.find((s) => s.id === i.studentId), due: invoiceDue(i) }))
     .filter((d) => d.student && d.due > 0)
     .sort((a, b) => b.due - a.due);
 
@@ -60,8 +61,15 @@ export default function PendingReport() {
 
       <Card>
         <CardHeader title="Defaulter List" subtitle={`${defaulters.length} students with pending dues`} icon={<AlertTriangle className="h-5 w-5" />} />
-        {defaulters.length === 0 ? (
-          <div className="p-5"><EmptyState title="No pending dues 🎉" /></div>
+        {data.loading && data.invoices.length === 0 ? (
+          <div className="p-5"><Loading label="Loading invoices…" /></div>
+        ) : defaulters.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              title={data.invoices.length === 0 ? "No invoices raised yet" : "No pending dues 🎉"}
+              hint={data.invoices.length === 0 ? "Raise fees from the Invoices screen to start billing." : undefined}
+            />
+          </div>
         ) : (
           <Table>
             <thead>
@@ -87,7 +95,7 @@ export default function PendingReport() {
                     <Td className="text-slate-500">{inv.invoiceNo}</Td>
                     <Td>{formatDate(inv.dueDate)}</Td>
                     <Td className="font-bold text-rose-600">{inr(due)}</Td>
-                    <Td><Badge tone={inv.status === "overdue" ? "red" : "amber"}>{inv.status}</Badge></Td>
+                    <Td><Badge tone={invoiceStatus(inv, today) === "overdue" ? "red" : "amber"}>{invoiceStatus(inv, today)}</Badge></Td>
                   </tr>
                 );
               })}

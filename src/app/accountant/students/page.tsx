@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useData } from "@/lib/store";
 import { RaiseStudentFeeModal } from "../RaiseStudentFeeModal";
 import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
+import { invoiceDue } from "@/lib/analytics";
 import { inr, fullName } from "@/lib/utils";
 import { Student } from "@/lib/types";
 import { Users, Search, IndianRupee, Wallet, CalendarPlus } from "lucide-react";
@@ -16,15 +17,15 @@ export default function AccountantStudents() {
 
   const dueFor = (studentId: string) =>
     data.invoices
-      .filter((i) => i.studentId === studentId && i.status !== "paid")
-      .reduce((s, i) => s + (i.total - i.paid), 0);
+      .filter((i) => i.studentId === studentId)
+      .reduce((s, i) => s + invoiceDue(i), 0);
 
   const rows = data.students
     .filter((s) => classId === "all" || s.classId === classId)
     .filter((s) => !q || fullName(s).toLowerCase().includes(q.toLowerCase()) || s.admissionNo.includes(q))
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
 
-  const totalOutstanding = data.invoices.filter((i) => i.status !== "paid").reduce((s, i) => s + (i.total - i.paid), 0);
+  const totalOutstanding = data.invoices.reduce((s, i) => s + invoiceDue(i), 0);
 
   return (
     <div className="space-y-6">

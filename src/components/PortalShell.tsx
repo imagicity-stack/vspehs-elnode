@@ -9,6 +9,7 @@ import { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui";
 import { toast } from "@/components/Toast";
+import { DataHealthBanner } from "@/components/DataHealthBanner";
 import { isDemoMode } from "@/lib/firebase";
 import { SCHOOL_NAME } from "@/lib/branding";
 import {
@@ -200,6 +201,8 @@ export function PortalShell({
             </div>
           </div>
         </header>
+
+        <DataHealthBanner />
 
         {crossViewing && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:px-6">

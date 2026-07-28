@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useData } from "@/lib/store";
+import { useData, COLLECTION_KEYS } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge } from "@/components/ui";
@@ -113,6 +113,7 @@ export default function AdminSettings() {
 
       {/* Diagnostics */}
       <FirestoreDiagnostics />
+      <CollectionHealthTable />
 
       {/* Danger / demo controls */}
       {isDemoMode && (
@@ -321,6 +322,66 @@ function FirestoreDiagnostics() {
             <p>{result.detail}</p>
           </div>
         )}
+      </div>
+    </Card>
+  );
+}
+
+// ── Live collection read status ───────────────────────────────
+// Answers "the data is in Firestore but the ERP shows nothing": one row per
+// collection with the number of documents this session actually received, and
+// the exact error when a read was refused.
+function CollectionHealthTable() {
+  const data = useData();
+
+  return (
+    <Card>
+      <CardHeader
+        title="Live Data Read Status"
+        subtitle="Documents received from Firestore in this session"
+        icon={<Database className="h-5 w-5" />}
+      />
+      <div className="p-5">
+        {isDemoMode ? (
+          <p className="text-sm text-slate-500">
+            Demo mode — no Firestore reads are made. Data lives in this browser only.
+          </p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {COLLECTION_KEYS.map((key) => {
+              const h = data.health[key] ?? { state: "pending" as const };
+              const count = (data[key] as unknown[])?.length ?? 0;
+              return (
+                <div key={key} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800">{key}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {h.state === "error"
+                        ? (h.code ?? "error") + (h.message ? ` — ${h.message}` : "")
+                        : h.state === "pending"
+                          ? "waiting for first snapshot…"
+                          : `${count} document${count === 1 ? "" : "s"}`}
+                    </p>
+                  </div>
+                  {h.state === "error"
+                    ? <XCircle className="h-5 w-5 shrink-0 text-rose-500" />
+                    : h.state === "pending"
+                      ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-slate-300" />
+                      : count > 0
+                        ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+                        : <AlertCircle className="h-5 w-5 shrink-0 text-amber-500" />}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-4 text-xs text-slate-400">
+          A collection that reads <strong>0 documents</strong> with no error means the app is
+          connected but that collection is empty in project &quot;{FIREBASE_PROJECT_ID}&quot;,
+          database &quot;{FIREBASE_DATABASE_ID}&quot; — check you are looking at the same project
+          and database in the Firebase console, and that the collection name matches exactly
+          (names are case-sensitive).
+        </p>
       </div>
     </Card>
   );

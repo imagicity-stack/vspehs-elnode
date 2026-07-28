@@ -46,11 +46,33 @@ interface DataState {
 }
 
 // State keys that map 1:1 to Firestore collection names.
-const COLLECTION_KEYS: (keyof DataState)[] = [
+export const COLLECTION_KEYS: (keyof DataState)[] = [
   "subjects", "classes", "staff", "students", "feeHeads", "invoices", "payments",
   "concessions", "attendance", "staffAttendance", "dailyUpdates", "homework",
   "circulars", "events", "exams", "examResults", "leaveRequests", "taskItems",
 ];
+
+/**
+ * Collections `firestore.rules` restricts to staff. A parent being denied these
+ * is expected, so it must not be reported as a fault.
+ */
+export const STAFF_ONLY_KEYS: (keyof DataState)[] = [
+  "staff", "staffAttendance", "leaveRequests", "taskItems",
+];
+
+/** Outcome of the live read for one collection — powers the health banner. */
+export interface CollectionHealth {
+  state: "pending" | "ok" | "error";
+  /** Firestore error code, e.g. "permission-denied". */
+  code?: string;
+  message?: string;
+}
+
+function pendingHealth(): Record<string, CollectionHealth> {
+  const out: Record<string, CollectionHealth> = {};
+  for (const k of COLLECTION_KEYS) out[k] = { state: isDemoMode ? "ok" : "pending" };
+  return out;
+}
 
 function emptyState(): DataState {
   return {
@@ -122,6 +144,8 @@ interface DataContextValue extends DataState {
   resetDemo: () => void;
   /** True while the initial data load is still in flight (Firebase mode). */
   loading: boolean;
+  /** Per-collection outcome of the live Firestore read. */
+  health: Record<string, CollectionHealth>;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -132,6 +156,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // `loading` is true while the first batch of data is still arriving, so the
   // UI can show a spinner instead of an empty state that looks like data loss.
   const [loading, setLoading] = useState(!isDemoMode);
+  // Per-collection read outcome. Without this a denied or misconfigured read is
+  // indistinguishable from "there is no data" — every dashboard just shows ₹0.
+  const [health, setHealth] = useState<Record<string, CollectionHealth>>(pendingHealth);
 
   // Demo mode reads localStorage once. Firebase mode opens a live onSnapshot
   // listener per collection on sign-in, so edits from any session appear here
@@ -165,11 +192,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setHydrated(true);
       if (!fbUser) {
         setState(emptyState());
+        setHealth(pendingHealth());
         setLoading(false);
         return;
       }
       // New user: clear stale data and stream the collections they can read.
       setState(emptyState());
+      setHealth(pendingHealth());
       setLoading(true);
       const responded = new Set<string>();
       const markResponded = (key: string) => {
@@ -184,12 +213,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           key,
           (rows) => {
             setState((s) => ({ ...s, [key]: rows }));
+            setHealth((h) => ({ ...h, [key]: { state: "ok" } }));
             markResponded(key);
           },
           (err) => {
             // Role-scoped reads (e.g. a parent reading `staff`) are denied —
-            // that's expected; just leave the collection empty.
+            // that's expected. Everything else is a real fault, so record it:
+            // the health banner and Admin → Settings surface it to the user.
+            const code = (err as { code?: string })?.code;
             console.warn(`[firestore] live read of "${key}" unavailable:`, err?.message ?? err);
+            setHealth((h) => ({
+              ...h,
+              [key]: { state: "error", code, message: err?.message ?? String(err) },
+            }));
             markResponded(key);
           },
         ),
@@ -235,6 +271,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return {
       ...state,
       loading,
+      health,
 
       markAttendance: (records) => {
         const keys = new Set(records.map((r) => `${r.studentId}|${r.date}`));
@@ -488,7 +525,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, loading]);
+  }, [state, loading, health]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

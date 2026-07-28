@@ -53,11 +53,39 @@ export function studentAttendanceRate(records: AttendanceRecord[], studentId: st
   return { rate: Math.round((ok / mine.length) * 100), present: ok, total: mine.length };
 }
 
-export function collectionSummary(invoices: Invoice[]) {
-  const billed = invoices.reduce((s, i) => s + i.total, 0);
-  const collected = invoices.reduce((s, i) => s + i.paid, 0);
-  const pending = invoices.filter((i) => i.status !== "paid").reduce((s, i) => s + (i.total - i.paid), 0);
-  const overdue = invoices.filter((i) => i.status === "overdue").reduce((s, i) => s + (i.total - i.paid), 0);
+/**
+ * Money fields, coerced. Invoices imported or seeded outside the app can carry
+ * a missing or string amount; without this one bad document turns a whole
+ * dashboard into "₹NaN".
+ */
+const num = (v: unknown) => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+export const invoiceDue = (i: Invoice) => Math.max(0, num(i.total) - num(i.paid));
+
+/**
+ * The status to display. Nothing ever *writes* "overdue" — an invoice is raised
+ * as "pending" and only moves to "partial"/"paid" — so it is derived here from
+ * the due date instead. Without this the Overdue tile is permanently ₹0 and the
+ * "overdue" invoice filter never matches anything.
+ */
+export function invoiceStatus(i: Invoice, today: string): Invoice["status"] {
+  if (i.status === "paid" || invoiceDue(i) === 0) return "paid";
+  if (i.dueDate && i.dueDate < today) return "overdue";
+  return i.status === "overdue" ? "pending" : i.status;
+}
+
+export function collectionSummary(invoices: Invoice[], today = new Date().toISOString().slice(0, 10)) {
+  const billed = invoices.reduce((s, i) => s + num(i.total), 0);
+  const collected = invoices.reduce((s, i) => s + num(i.paid), 0);
+  const pending = invoices
+    .filter((i) => invoiceStatus(i, today) !== "paid")
+    .reduce((s, i) => s + invoiceDue(i), 0);
+  const overdue = invoices
+    .filter((i) => invoiceStatus(i, today) === "overdue")
+    .reduce((s, i) => s + invoiceDue(i), 0);
   const rate = billed ? Math.round((collected / billed) * 100) : 0;
   return { billed, collected, pending, overdue, rate };
 }
@@ -66,16 +94,19 @@ export function collectionTrend(payments: Payment[], days = 14) {
   return lastNDates(days).map((date) => ({
     label: new Date(date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
     date,
-    Collected: payments.filter((p) => p.date === date).reduce((s, p) => s + p.amount, 0),
+    Collected: payments.filter((p) => p.date === date).reduce((s, p) => s + num(p.amount), 0),
   }));
 }
 
 export function feeByCategory(invoices: Invoice[]) {
   const map = new Map<string, number>();
   for (const inv of invoices) {
-    for (const line of inv.lines) {
-      const key = line.name;
-      map.set(key, (map.get(key) ?? 0) + line.amount);
+    // `lines` is absent on invoices written by anything other than this app
+    // (imports, console edits) — iterating it blindly would throw and blank the
+    // entire dashboard rather than just this chart.
+    for (const line of inv.lines ?? []) {
+      const key = line?.name ?? "Other";
+      map.set(key, (map.get(key) ?? 0) + num(line?.amount));
     }
   }
   return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
@@ -83,7 +114,10 @@ export function feeByCategory(invoices: Invoice[]) {
 
 export function paymentMethodSplit(payments: Payment[]) {
   const map = new Map<string, number>();
-  for (const p of payments) map.set(p.method, (map.get(p.method) ?? 0) + p.amount);
+  for (const p of payments) {
+    const method = p.method ?? "other";
+    map.set(method, (map.get(method) ?? 0) + num(p.amount));
+  }
   return Array.from(map.entries()).map(([name, value]) => ({ name: name.toUpperCase(), value }));
 }
 
@@ -114,8 +148,8 @@ export function classHealth(
     const att = attendanceForDate(records.filter((r) => r.classId === c.id), today);
     const studentIds = new Set(cls.map((s) => s.id));
     const dues = invoices
-      .filter((i) => studentIds.has(i.studentId) && i.status !== "paid")
-      .reduce((s, i) => s + (i.total - i.paid), 0);
+      .filter((i) => studentIds.has(i.studentId))
+      .reduce((s, i) => s + invoiceDue(i), 0);
     return {
       class: c,
       strength: cls.length,
