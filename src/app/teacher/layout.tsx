@@ -3,7 +3,7 @@
 import { PortalShell, NavItem } from "@/components/PortalShell";
 import { TeacherProvider } from "./teacher-context";
 import {
-  LayoutDashboard, CalendarCheck, Users, Camera, BookOpen, ClipboardCheck, Star, CalendarOff,
+  LayoutDashboard, CalendarCheck, Users, Camera, BookOpen, ClipboardCheck, Star, CalendarOff, UserCheck,
 } from "lucide-react";
 
 const nav: NavItem[] = [
@@ -14,6 +14,7 @@ const nav: NavItem[] = [
   { href: "/teacher/homework", label: "Homework", icon: BookOpen },
   { href: "/teacher/exams", label: "Assessments", icon: Star },
   { href: "/teacher/tasks", label: "Task Checklist", icon: ClipboardCheck },
+  { href: "/teacher/my-attendance", label: "My Attendance", icon: UserCheck },
   { href: "/teacher/leave", label: "Leave", icon: CalendarOff },
 ];
 

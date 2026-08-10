@@ -1,16 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useData } from "@/lib/store";
 import { auth, isFirebaseConfigured, DEFAULT_PASSWORD } from "@/lib/firebase";
 import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
+import { PhotoUpload } from "@/components/PhotoUpload";
+import { StaffIdCardModal } from "@/components/StaffIdCardModal";
 import { formatDate, todayISO } from "@/lib/utils";
-import { Staff, StaffRole } from "@/lib/types";
+import { BloodGroup, Staff, StaffRole } from "@/lib/types";
 import {
   GraduationCap, Plus, CalendarCheck, X, Mail, Phone, BadgeCheck, Briefcase, Edit2, BookOpen,
-  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck, Trash2,
+  KeyRound, CheckCircle2, Copy, Loader2, ShieldCheck, Trash2, CreditCard,
 } from "lucide-react";
+
+const BLOOD_GROUPS: BloodGroup[] = ["Unknown", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 // Calls a protected admin route with the caller's ID token. Returns ok/false.
 async function callAdmin(path: string, payload: unknown): Promise<boolean> {
@@ -36,6 +41,7 @@ export default function AdminStaff() {
   const data = useData();
   const [open, setOpen] = useState(false);
   const [editStaff, setEditStaff] = useState<Staff | null>(null);
+  const [cardStaff, setCardStaff] = useState<Staff | null>(null);
   const today = todayISO();
 
   const pendingLeave = data.leaveRequests.filter((l) => l.status === "pending");
@@ -75,7 +81,10 @@ export default function AdminStaff() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Staff</h1>
           <p className="mt-1 text-sm text-slate-500">Teachers, accountants and support staff.</p>
         </div>
-        <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="h-4 w-4" /> Add Staff</button>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/id-cards?type=staff" className="btn-ghost"><CreditCard className="h-4 w-4" /> ID Cards</Link>
+          <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="h-4 w-4" /> Add Staff</button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-4">
@@ -173,6 +182,13 @@ export default function AdminStaff() {
                   <Td>
                     <div className="flex items-center gap-1">
                       <button
+                        onClick={() => setCardStaff(s)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                        title="Generate ID card"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => setEditStaff(s)}
                         className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-600"
                         title="Edit staff"
@@ -205,6 +221,7 @@ export default function AdminStaff() {
 
       {open && <AddStaffModal onClose={() => setOpen(false)} />}
       {editStaff && <EditStaffModal staff={editStaff} onClose={() => setEditStaff(null)} />}
+      {cardStaff && <StaffIdCardModal staff={cardStaff} onClose={() => setCardStaff(null)} />}
       {resetCred && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setResetCred(null)} />
@@ -469,9 +486,16 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
     qualification: staff.qualification,
     experienceYears: String(staff.experienceYears),
     status: staff.status,
+    designation: staff.designation ?? "",
+    bloodGroup: staff.bloodGroup ?? "Unknown",
+    dob: staff.dob ?? "",
+    address: staff.address === "—" ? "" : staff.address ?? "",
+    emergencyContact: staff.emergencyContact ?? "",
+    emergencyPhone: staff.emergencyPhone ?? "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>(staff.subjects);
+  const [photo, setPhoto] = useState<string | undefined>(staff.photoUrl);
   const [busy, setBusy] = useState(false);
 
   const isTeacher = staff.role === "teacher" || staff.role === "helper";
@@ -487,6 +511,13 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
       experienceYears: Number(form.experienceYears) || 0,
       status,
       subjects: isTeacher ? selectedSubjects : [],
+      photoUrl: photo,
+      designation: form.designation.trim(),
+      bloodGroup: form.bloodGroup as BloodGroup,
+      dob: form.dob,
+      address: form.address.trim() || "—",
+      emergencyContact: form.emergencyContact.trim(),
+      emergencyPhone: form.emergencyPhone.trim(),
     });
 
     // Keep the login in step with the record: an inactive staff member can't sign in.
@@ -517,6 +548,7 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
           {staff.email} · <span className="capitalize">{staff.role}</span>
         </p>
         <div className="mt-4 space-y-3">
+          <PhotoUpload subjectId={staff.id} kind="staff" name={form.name || staff.name} value={photo} onChange={setPhoto} />
           <div>
             <label className="label">Full name</label>
             <input value={form.name} onChange={(e) => set("name", e.target.value)} className="input" autoFocus />
@@ -543,6 +575,50 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
             <div>
               <label className="label">Experience (yrs)</label>
               <input type="number" min={0} value={form.experienceYears} onChange={(e) => set("experienceYears", e.target.value)} className="input" />
+            </div>
+          </div>
+
+          {/* Printed on the staff ID card */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <CreditCard className="h-3.5 w-3.5" /> ID card details
+            </p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Designation</label>
+                  <input
+                    value={form.designation}
+                    onChange={(e) => set("designation", e.target.value)}
+                    placeholder={staff.role}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label">Blood group</label>
+                  <select value={form.bloodGroup} onChange={(e) => set("bloodGroup", e.target.value)} className="input">
+                    {BLOOD_GROUPS.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Date of birth</label>
+                <input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">Address</label>
+                <input value={form.address} onChange={(e) => set("address", e.target.value)} className="input" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Emergency contact</label>
+                  <input value={form.emergencyContact} onChange={(e) => set("emergencyContact", e.target.value)} placeholder="Name" className="input" />
+                </div>
+                <div>
+                  <label className="label">Emergency phone</label>
+                  <input value={form.emergencyPhone} onChange={(e) => set("emergencyPhone", e.target.value)} className="input" />
+                </div>
+              </div>
             </div>
           </div>
 

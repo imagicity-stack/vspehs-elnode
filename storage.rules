@@ -3,8 +3,8 @@ rules_version = '2';
 // ─────────────────────────────────────────────────────────────
 // El-Node — Firebase Storage security rules
 // ─────────────────────────────────────────────────────────────
-// Student photos (used on ID cards and profiles). Any signed-in user may read;
-// only staff / admins may upload. Keep adminEmails() in sync with
+// Student and staff photos (used on ID cards and profiles). Any signed-in user
+// may read; only staff / admins may upload. Keep adminEmails() in sync with
 // firestore.rules and NEXT_PUBLIC_SUPERADMIN_EMAILS.
 // Deploy with: firebase deploy --only storage
 // ─────────────────────────────────────────────────────────────
@@ -25,6 +25,13 @@ service firebase.storage {
     }
 
     match /student-photos/{file} {
+      allow read: if isSignedIn();
+      allow write: if isStaff()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches("image/.*");
+    }
+
+    match /staff-photos/{file} {
       allow read: if isSignedIn();
       allow write: if isStaff()
         && request.resource.size < 5 * 1024 * 1024

@@ -96,6 +96,12 @@ export interface Staff {
   subjects: string[];
   salary?: number;
   status: "active" | "on-leave" | "inactive";
+  /** Printed designation, e.g. "Senior Teacher". Falls back to the role. */
+  designation?: string;
+  /** ID-card details */
+  bloodGroup?: BloodGroup;
+  emergencyContact?: string;
+  emergencyPhone?: string;
 }
 
 export type AttendanceStatus = "present" | "absent" | "late" | "half-day";
@@ -115,10 +121,16 @@ export interface AttendanceRecord {
 export interface StaffAttendanceRecord {
   id: string;
   staffId: string;
-  date: string;
+  date: string; // ISO date (YYYY-MM-DD)
   status: AttendanceStatus;
+  /** Local "HH:mm" punch times */
   checkIn?: string;
   checkOut?: string;
+  /** minutes past the grace period, when status === 'late' */
+  lateBy?: number;
+  note?: string;
+  /** staff id of whoever marked it — or "self" for a self check-in */
+  markedBy?: string;
 }
 
 export type FeeFrequency = "monthly" | "quarterly" | "annual" | "one-time";

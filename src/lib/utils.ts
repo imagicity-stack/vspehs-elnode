@@ -51,8 +51,30 @@ export function relativeDay(iso: string) {
   return `in ${diff} days`;
 }
 
+/**
+ * Local-calendar ISO date (YYYY-MM-DD). Deliberately not `toISOString()`, which
+ * converts to UTC and so returns *yesterday* for any local time before the UTC
+ * offset (00:00–05:30 in IST) — attendance would be filed against the wrong day.
+ */
+export function isoDate(d: Date = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return isoDate();
+}
+
+/** Local wall-clock time as "HH:mm" — the format punch times are stored in. */
+export function nowHHMM(d: Date = new Date()) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** "09:05" → "9:05 AM". Returns "—" for a missing/invalid time. */
+export function formatTime(hhmm?: string) {
+  if (!hhmm || !/^\d{1,2}:\d{2}$/.test(hhmm)) return "—";
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h < 12 ? "AM" : "PM";
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 /** Deterministic pastel colour from a string (used for avatars / gradients). */

@@ -117,7 +117,7 @@ export function PortalShell({
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
+      <aside className="no-print fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
         {Sidebar}
       </aside>
 
@@ -140,7 +140,7 @@ export function PortalShell({
         </aside>
       </div>
 
-      <div className="lg:pl-64">
+      <div className="lg:pl-64 print:pl-0">
         {/* Live data-loading bar */}
         {dataLoading && (
           <div className="fixed inset-x-0 top-0 z-40 h-0.5 overflow-hidden bg-brand-100 lg:left-64">
@@ -149,7 +149,7 @@ export function PortalShell({
         )}
 
         {/* Sticky top bar */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/85 px-4 backdrop-blur-md sm:px-6">
+        <header className="no-print sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/85 px-4 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white lg:hidden">
               <GraduationCap className="h-5 w-5" />
@@ -215,7 +215,7 @@ export function PortalShell({
       </div>
 
       {/* Bottom navigation (mobile) */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+      <nav className="no-print fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-5">
           {primary.map((item) => {
             const active = isActive(item.href);

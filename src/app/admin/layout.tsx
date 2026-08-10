@@ -2,7 +2,7 @@
 
 import { PortalShell, NavItem } from "@/components/PortalShell";
 import {
-  LayoutDashboard, BarChart3, Users, GraduationCap, School, Megaphone, Settings, Wallet, BookOpen, Receipt, CreditCard, Calculator,
+  LayoutDashboard, BarChart3, Users, GraduationCap, School, Megaphone, Settings, Wallet, BookOpen, Receipt, CreditCard, Calculator, CalendarCheck,
 } from "lucide-react";
 
 const nav: NavItem[] = [
@@ -10,6 +10,7 @@ const nav: NavItem[] = [
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/students", label: "Students", icon: Users },
   { href: "/admin/staff", label: "Staff", icon: GraduationCap },
+  { href: "/admin/attendance", label: "Staff Attendance", icon: CalendarCheck },
   { href: "/admin/classes", label: "Classes", icon: School },
   { href: "/admin/subjects", label: "Subjects", icon: BookOpen },
   { href: "/admin/id-cards", label: "ID Cards", icon: CreditCard },
