@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Avatar } from "@/components/ui";
 import { ImageCropModal } from "@/components/ImageCropModal";
-import { uploadStudentPhoto } from "@/lib/storage";
+import { uploadStaffPhoto, uploadStudentPhoto } from "@/lib/storage";
 import { isStorageConfigured } from "@/lib/firebase";
 import { Camera, Loader2, X } from "lucide-react";
 
@@ -12,9 +12,11 @@ import { Camera, Loader2, X } from "lucide-react";
  * (or a local data URL in demo mode). Returns the resulting URL via onChange.
  */
 export function PhotoUpload({
-  studentId, name, value, onChange,
+  subjectId, kind = "student", name, value, onChange,
 }: {
-  studentId: string;
+  /** Record the photo belongs to — it names the file in the bucket. */
+  subjectId: string;
+  kind?: "student" | "staff";
   name: string;
   value?: string;
   onChange: (url: string | undefined) => void;
@@ -38,7 +40,9 @@ export function PhotoUpload({
     setBusy(true);
     setErr("");
     try {
-      const url = await uploadStudentPhoto(studentId, finalFile);
+      const url = kind === "staff"
+        ? await uploadStaffPhoto(subjectId, finalFile)
+        : await uploadStudentPhoto(subjectId, finalFile);
       onChange(url);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Upload failed.");
@@ -54,7 +58,7 @@ export function PhotoUpload({
           {value
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={value} alt={name} className="h-20 w-20 rounded-2xl object-cover" />
-            : <Avatar name={name || "Student"} size={80} className="rounded-2xl" />}
+            : <Avatar name={name || (kind === "staff" ? "Staff" : "Student")} size={80} className="rounded-2xl" />}
           {value && (
             <button
               type="button"
@@ -79,7 +83,7 @@ export function PhotoUpload({
       </div>
 
       {cropFile && (
-        <ImageCropModal file={cropFile} name={name || "Student"} onCancel={() => setCropFile(null)} onDone={handleCropped} />
+        <ImageCropModal file={cropFile} name={name || (kind === "staff" ? "Staff" : "Student")} onCancel={() => setCropFile(null)} onDone={handleCropped} />
       )}
     </>
   );

@@ -31,6 +31,8 @@ platform — with four dedicated, role‑based portals.
 - **Post homework**
 - **Skill assessments** — enter grades per developmental area, **publish to parents**
 - **Daily task checklist** (teaching / care / admin / safety)
+- **My attendance** — self **check-in / check-out**, month calendar of your own
+  register, punctuality and average hours on site
 - **Leave** — apply & track approvals
 
 ### 🧮 Accountant Portal — _sign in with work email_
@@ -45,6 +47,12 @@ platform — with four dedicated, role‑based portals.
 - **State‑of‑the‑art analytics**: attendance trends (stacked), enrolment by level,
   gender split, collection trends, class health, seat occupancy
 - **Students** directory (+ add student) and **Staff** directory (+ add staff)
+- **Staff attendance** — a full register in three views: mark the day with punch
+  times, a month-at-a-glance matrix you can correct cell by cell, and insights
+  (trend, status split, punctuality board, watchlist, per-staff summary). CSV
+  export throughout; approved leave is surfaced as you mark
+- **ID cards** — student *and* **staff** cards, singly from the staff directory
+  or in bulk, printed at CR80 size (see below)
 - **Leave approvals**
 - **Classes** overview with occupancy & class‑teacher allocation
 - **Finance** overview & class‑wise collection
@@ -131,6 +139,44 @@ When the env vars are present El‑Node **automatically switches** from demo dat
 Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.ts`).
 
 ---
+
+## 🪪 ID cards
+
+Students and staff share one card design (`src/components/id-card-parts.tsx`),
+so a mixed print run comes out on identical stock.
+
+| | Where | Notes |
+|---|---|---|
+| **Student card** | Admin → ID Cards → *Students* | Front: photo, name, admission no, class. Back: parents, contact, DOB, address, QR |
+| **Staff card** | Admin → Staff → 🪪 (per person) or Admin → ID Cards → *Staff* | Front: photo, name, staff ID, designation pill, blood-group tag. Back: staff ID, blood group, DOB, joining date, phone, emergency contact, address, optional **valid till**, QR |
+
+The staff card opens in a **generation modal** — pick front & back / front only /
+back only, set the validity date (defaults to 31 March of the current session),
+and print. Missing details (photo, blood group, emergency contact…) are called
+out before you print; fill them in from **Edit staff → ID card details**.
+
+Printing uses an isolated portal, so each face prints as its own **CR80 page
+(54 × 85.6 mm)** with no app chrome. Staff portraits upload to
+`staff-photos/` in Firebase Storage (see `storage.rules`).
+
+## ⏱️ Staff attendance
+
+`Admin → Staff Attendance` is the register; `Teacher → My Attendance` is the
+self-service side. Records live in the `staffAttendance` collection, one
+document per staff member per day (`sat-<staffId>-<date>`), so marking the same
+day twice updates the row instead of duplicating it.
+
+The working day drives punctuality and hours, and is configurable:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NEXT_PUBLIC_WORKDAY_START` | `09:00` | Scheduled start |
+| `NEXT_PUBLIC_WORKDAY_END` | `16:00` | Scheduled end |
+| `NEXT_PUBLIC_WORKDAY_GRACE` | `10` | Minutes after start still counted on time |
+
+A check-in past start + grace files as **late** (with the minutes recorded);
+hours on site are measured between the two punches. Weekends are excluded from
+rates and trends, and staff on **approved leave** are flagged in the register.
 
 ## 📱 Progressive Web App (PWA)
 

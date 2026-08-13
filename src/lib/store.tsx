@@ -18,8 +18,9 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, isDemoMode } from "./firebase";
 import { subscribeCollection, upsertDoc, removeDoc } from "./firestore";
 import { toast } from "@/components/Toast";
+import { statusFromCheckIn } from "./analytics";
 import {
-  AttendanceRecord, Circular, SchoolClass, Concession, DailyUpdate, Exam,
+  AttendanceRecord, AttendanceStatus, Circular, SchoolClass, Concession, DailyUpdate, Exam,
   ExamResult, FeeHead, Homework, Invoice, LeaveRequest, Payment, PaymentMethod,
   SchoolEvent, Staff, StaffAttendanceRecord, Student, Subject, TaskItem,
 } from "./types";
@@ -100,9 +101,20 @@ function emptyState(): DataState {
 const STORAGE_KEY = "elnode.data.v2";
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
 
+/**
+ * Deterministic id for a staff member's day. One document per (staff, date)
+ * means re-saving the register updates the row rather than stacking duplicates,
+ * and two admins marking the same day converge instead of double-counting.
+ */
+const staffAttendanceId = (staffId: string, date: string) => `sat-${staffId}-${date}`;
+
 interface DataContextValue extends DataState {
   // attendance
   markAttendance: (records: Omit<AttendanceRecord, "id">[]) => void;
+  /** Replaces the staff register for each (staffId, date) pair supplied. */
+  markStaffAttendance: (records: Omit<StaffAttendanceRecord, "id">[]) => void;
+  /** Self-service clock in / clock out — merges into the day's record. */
+  punchStaff: (args: { staffId: string; date: string; kind: "in" | "out"; time: string }) => void;
   // class updates / homework / circulars
   addDailyUpdate: (u: Omit<DailyUpdate, "id">) => void;
   addHomework: (h: Omit<Homework, "id">) => void;
@@ -283,6 +295,60 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         });
         replaced.forEach((a) => eraseDoc("attendance", a.id));
         added.forEach((a) => writeDoc("attendance", a));
+      },
+
+      markStaffAttendance: (records) => {
+        const keys = new Set(records.map((r) => `${r.staffId}|${r.date}`));
+        const added = records.map((r) => ({ ...r, id: staffAttendanceId(r.staffId, r.date) }));
+        const newIds = new Set(added.map((a) => a.id));
+        // Records for the same day filed under a different id (e.g. written
+        // before ids were deterministic) would otherwise come back on the next
+        // snapshot and show as a duplicate row.
+        const superseded = state.staffAttendance.filter(
+          (a) => keys.has(`${a.staffId}|${a.date}`) && !newIds.has(a.id),
+        );
+        setState((s) => ({
+          ...s,
+          staffAttendance: [
+            ...added,
+            ...s.staffAttendance.filter((a) => !keys.has(`${a.staffId}|${a.date}`)),
+          ],
+        }));
+        superseded.forEach((a) => eraseDoc("staffAttendance", a.id));
+        added.forEach((a) => writeDoc("staffAttendance", a));
+      },
+
+      punchStaff: ({ staffId, date, kind, time }) => {
+        const existing = state.staffAttendance.find((a) => a.staffId === staffId && a.date === date);
+        const base: StaffAttendanceRecord = existing ?? {
+          id: staffAttendanceId(staffId, date),
+          staffId,
+          date,
+          status: "present" as AttendanceStatus,
+          markedBy: "self",
+        };
+        // Punctuality follows from the punch, so a self check-in can't be
+        // recorded as on time when it wasn't.
+        const derived = statusFromCheckIn(time);
+        const doc: StaffAttendanceRecord =
+          kind === "in"
+            ? {
+                ...base,
+                checkIn: time,
+                status: derived?.status ?? base.status,
+                lateBy: derived?.status === "late" ? derived.lateBy : undefined,
+                markedBy: "self",
+              }
+            : { ...base, checkOut: time };
+
+        setState((s) => ({
+          ...s,
+          staffAttendance: [
+            doc,
+            ...s.staffAttendance.filter((a) => !(a.staffId === staffId && a.date === date)),
+          ],
+        }));
+        writeDoc("staffAttendance", doc);
       },
 
       addDailyUpdate: (u) => {

@@ -624,7 +624,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
 
         <div className="mt-4">
           <label className="label">Photo (used on the ID card)</label>
-          <PhotoUpload studentId={student.id} name={fullName(student)} value={photo} onChange={setPhoto} />
+          <PhotoUpload subjectId={student.id} name={fullName(student)} value={photo} onChange={setPhoto} />
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
@@ -828,7 +828,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4">
           <label className="label">Photo (optional, for ID card)</label>
           {admissionReady ? (
-            <PhotoUpload studentId={`st-${form.admissionNo}`} name={`${form.firstName} ${form.lastName}`.trim() || "Student"} value={photo} onChange={setPhoto} />
+            <PhotoUpload subjectId={`st-${form.admissionNo}`} name={`${form.firstName} ${form.lastName}`.trim() || "Student"} value={photo} onChange={setPhoto} />
           ) : (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Enter a valid 7-digit admission number below to attach a photo.</p>
           )}

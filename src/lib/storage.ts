@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
-// Student photo storage
+// Portrait storage (students & staff)
 // ─────────────────────────────────────────────────────────────
-// Uploads a student's photo and returns a URL to store on the record.
+// Uploads a person's photo and returns a URL to store on the record.
 // • Firebase mode (Storage configured): uploads to the bucket and returns the
 //   permanent download URL.
 // • Demo / no Storage: falls back to an inline data URL so the preview and ID
@@ -22,14 +22,13 @@ function readAsDataURL(file: File): Promise<string> {
   });
 }
 
-export async function uploadStudentPhoto(studentId: string, file: File): Promise<string> {
+async function uploadPhoto(folder: string, id: string, file: File): Promise<string> {
   if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
   if (file.size > MAX_BYTES) throw new Error("Image must be under 5 MB.");
 
   if (isStorageConfigured && storage) {
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-    const path = `student-photos/${studentId}.${ext}`;
-    const r = ref(storage, path);
+    const r = ref(storage, `${folder}/${id}.${ext}`);
     await uploadBytes(r, file, { contentType: file.type });
     return getDownloadURL(r);
   }
@@ -37,3 +36,9 @@ export async function uploadStudentPhoto(studentId: string, file: File): Promise
   // Demo fallback — inline data URL (kept in localStorage only).
   return readAsDataURL(file);
 }
+
+export const uploadStudentPhoto = (studentId: string, file: File) =>
+  uploadPhoto("student-photos", studentId, file);
+
+export const uploadStaffPhoto = (staffId: string, file: File) =>
+  uploadPhoto("staff-photos", staffId, file);
