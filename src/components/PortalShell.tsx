@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui";
 import { toast } from "@/components/Toast";
 import { DataHealthBanner } from "@/components/DataHealthBanner";
+import { notificationsFor, unreadCount } from "@/lib/notifications";
 import { isDemoMode } from "@/lib/firebase";
 import { SCHOOL_NAME } from "@/lib/branding";
 import {
@@ -33,12 +34,24 @@ export function PortalShell({
   role, nav, children, alsoAllow,
 }: { role: Role; nav: NavItem[]; children: React.ReactNode; alsoAllow?: Role[] }) {
   const { user, loading, logout, canChangePassword } = useAuth();
-  const { loading: dataLoading } = useData();
+  const {
+    loading: dataLoading, staff, students, notifications, markNotificationRead,
+  } = useData();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // A parent's notifications are scoped to the classes their children are in.
+  const myNotifications = React.useMemo(() => {
+    const classIds = user?.studentIds?.length
+      ? students.filter((s) => user.studentIds?.includes(s.id)).map((s) => s.classId)
+      : [];
+    return notificationsFor(user, notifications, { classIds });
+  }, [user, notifications, students]);
+  const unread = user ? unreadCount(myNotifications, user.uid) : 0;
 
   // A user may view their own portal; a Super Admin may also view portals that
   // opt in via `alsoAllow` (e.g. Accounts) so they can perform those actions.
@@ -60,6 +73,11 @@ export function PortalShell({
       </div>
     );
   }
+
+  // Staff still on the password an admin issued must replace it before they
+  // can use the portal. Flag lives on the staff record, written server-side.
+  const me = user.staffId ? staff.find((s) => s.id === user.staffId) : undefined;
+  const mustChangePassword = Boolean(me?.mustChangePassword) && canChangePassword;
 
   const isActive = (href: string) =>
     pathname === href || (href !== portalHome[role] && pathname.startsWith(href));
@@ -160,10 +178,79 @@ export function PortalShell({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Notifications">
-              <BellRing className="h-5 w-5" />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen((o) => !o)}
+                className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}
+              >
+                <BellRing className="h-5 w-5" />
+                {unread > 0 && (
+                  <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setNotifOpen(false)} />
+                  <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+                      <p className="text-sm font-semibold text-slate-800">Notifications</p>
+                      {unread > 0 && (
+                        <button
+                          onClick={() => myNotifications.forEach((n) => markNotificationRead(n.id, user.uid))}
+                          className="text-xs font-medium text-brand-600 hover:underline"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {myNotifications.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-sm text-slate-400">Nothing new.</p>
+                      ) : (
+                        myNotifications.slice(0, 20).map((n) => {
+                          const isUnread = !n.readBy?.includes(user.uid);
+                          const body = (
+                            <>
+                              <div className="flex items-start gap-2">
+                                {isUnread && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />}
+                                <div className={isUnread ? "" : "pl-3.5"}>
+                                  <p className="text-sm font-semibold text-slate-800">{n.title}</p>
+                                  <p className="text-xs text-slate-500">{n.body}</p>
+                                  <p className="mt-0.5 text-[11px] text-slate-400">
+                                    {new Date(n.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                                  </p>
+                                </div>
+                              </div>
+                            </>
+                          );
+                          return n.link ? (
+                            <Link
+                              key={n.id}
+                              href={n.link}
+                              onClick={() => { markNotificationRead(n.id, user.uid); setNotifOpen(false); }}
+                              className="block border-b border-slate-50 px-4 py-2.5 hover:bg-slate-50"
+                            >
+                              {body}
+                            </Link>
+                          ) : (
+                            <button
+                              key={n.id}
+                              onClick={() => markNotificationRead(n.id, user.uid)}
+                              className="block w-full border-b border-slate-50 px-4 py-2.5 text-left hover:bg-slate-50"
+                            >
+                              {body}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="relative">
               <button
                 onClick={() => setMenu((m) => !m)}
@@ -244,13 +331,17 @@ export function PortalShell({
         </div>
       </nav>
 
-      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
+      {/* A staff member still on the password an admin issued is asked to
+          replace it before anything else — the prompt has no way out. */}
+      {mustChangePassword
+        ? <ChangePasswordModal forced onClose={() => {}} />
+        : pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
     </div>
   );
 }
 
 // ── Change password modal ─────────────────────────────────────
-function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+function ChangePasswordModal({ onClose, forced }: { onClose: () => void; forced?: boolean }) {
   const { changePassword } = useAuth();
   const noun = "password";
   const [current, setCurrent] = useState("");
@@ -278,12 +369,20 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/40" onClick={forced ? undefined : onClose} />
       <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-soft">
-        <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
-          <X className="h-5 w-5" />
-        </button>
-        <h3 className="text-lg font-bold text-slate-900">Change {noun}</h3>
+        {!forced && (
+          <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        )}
+        {forced && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+            <KeyRound className="h-4 w-4 shrink-0" />
+            You&apos;re still using the password your administrator issued. Choose your own to continue.
+          </div>
+        )}
+        <h3 className="text-lg font-bold text-slate-900">{forced ? `Set your ${noun}` : `Change ${noun}`}</h3>
         <p className="text-sm text-slate-500">Enter your current {noun} and choose a new one.</p>
 
         <div className="mt-4 space-y-3">
@@ -303,7 +402,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="mt-5 flex gap-3">
-          <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
+          {!forced && <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>}
           <button onClick={submit} disabled={!valid || busy} className="btn-primary flex-1 py-2.5">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : `Update ${noun}`}
           </button>

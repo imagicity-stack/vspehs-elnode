@@ -4,12 +4,14 @@ import { PortalShell, NavItem } from "@/components/PortalShell";
 import { ChildProvider } from "./child-context";
 import {
   LayoutDashboard, User, CalendarCheck, Camera, BookOpen, Megaphone, Wallet, FileText,
+  ClipboardList,
 } from "lucide-react";
 
 const nav: NavItem[] = [
   { href: "/parent", label: "Dashboard", icon: LayoutDashboard },
   { href: "/parent/profile", label: "Child Profile", icon: User },
   { href: "/parent/attendance", label: "Attendance", icon: CalendarCheck },
+  { href: "/parent/exams", label: "Examinations", icon: ClipboardList },
   { href: "/parent/updates", label: "Daily Updates", icon: Camera },
   { href: "/parent/homework", label: "Homework", icon: BookOpen },
   { href: "/parent/circulars", label: "Circulars", icon: Megaphone },

@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import {
-  AttendanceRecord, AttendanceStatus, SchoolClass, Invoice, LeaveRequest, Payment,
+  AttendanceRecord, AttendanceStatus, CLASS_LEVELS, SchoolClass, Invoice, LeaveRequest, Payment,
   Staff, StaffAttendanceRecord, Student,
 } from "./types";
 import { isoDate } from "./utils";
@@ -283,7 +283,12 @@ export function enrolmentByLevel(students: Student[], classes: SchoolClass[]) {
     const level = cls?.level ?? "Other";
     map.set(level, (map.get(level) ?? 0) + 1);
   }
-  return ["Playgroup", "Nursery", "LKG", "UKG"].map((level) => ({ label: level, Students: map.get(level) ?? 0 }));
+  // Only levels the school actually runs are charted, in curriculum order —
+  // a pre-primary school shouldn't see twelve empty senior-school bars.
+  return CLASS_LEVELS.filter((level) => map.has(level)).map((level) => ({
+    label: level,
+    Students: map.get(level) ?? 0,
+  }));
 }
 
 export function genderSplit(students: Student[]) {

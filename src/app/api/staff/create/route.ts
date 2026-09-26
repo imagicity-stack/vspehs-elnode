@@ -81,7 +81,13 @@ export async function POST(req: Request) {
   // 4) Role claim + Firestore documents.
   await adminAuth.setCustomUserClaims(uid, { role, staffId: staff.id });
   const db = getFirestore(app);
-  await db.collection("staff").doc(staff.id).set(staff, { merge: true });
+  // `authUid` ties the staff record to its login, and `mustChangePassword`
+  // forces the default password off at first sign-in. Both are written here,
+  // server-side, so a client can never fake having changed its password.
+  await db.collection("staff").doc(staff.id).set(
+    { ...staff, authUid: uid, mustChangePassword: true, loginDisabled: false },
+    { merge: true },
+  );
   await db.collection("appUsers").doc(uid).set(
     {
       role,
@@ -92,5 +98,5 @@ export async function POST(req: Request) {
     { merge: true },
   );
 
-  return NextResponse.json({ ok: true, staffId: staff.id, email, role });
+  return NextResponse.json({ ok: true, staffId: staff.id, uid, email, role });
 }

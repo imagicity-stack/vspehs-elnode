@@ -61,6 +61,26 @@ export async function POST(req: Request) {
     }
   }
 
+  // Read-only account status, so the directory can show whether a login
+  // exists, whether it is disabled, and when it was last used.
+  if (body.action === "status") {
+    if (!uid) return NextResponse.json({ ok: true, staffId, provisioned: false });
+    try {
+      const rec = await adminAuth.getUser(uid);
+      return NextResponse.json({
+        ok: true,
+        staffId,
+        provisioned: true,
+        uid,
+        disabled: rec.disabled,
+        lastSignInAt: rec.metadata.lastSignInTime || null,
+        createdAt: rec.metadata.creationTime || null,
+      });
+    } catch (e: any) {
+      return NextResponse.json({ error: "Could not read account.", detail: e?.message }, { status: 502 });
+    }
+  }
+
   if (body.action === "reset") {
     const password = String(body.password || "");
     if (password.length < 6) {
@@ -74,6 +94,13 @@ export async function POST(req: Request) {
     } catch (e: any) {
       return NextResponse.json({ error: "Could not reset password.", detail: e?.message }, { status: 502 });
     }
+    // Back on a default password — force the next sign-in to replace it.
+    try {
+      await db.collection("staff").doc(staffId).set(
+        { mustChangePassword: true, authUid: uid },
+        { merge: true },
+      );
+    } catch { /* the password reset itself succeeded */ }
     return NextResponse.json({ ok: true, staffId });
   }
 
@@ -101,6 +128,17 @@ export async function POST(req: Request) {
           await db.collection("appUsers").doc(uid).set({ role }, { merge: true });
         } catch { /* ignore */ }
       }
+      // Mirror the account state onto the staff record so the directory can
+      // show it without a round trip per row.
+      try {
+        await db.collection("staff").doc(staffId).set(
+          {
+            authUid: uid,
+            ...(typeof body.disabled === "boolean" ? { loginDisabled: body.disabled } : {}),
+          },
+          { merge: true },
+        );
+      } catch { /* ignore */ }
     }
     return NextResponse.json({ ok: true, staffId, provisioned: Boolean(uid) });
   }

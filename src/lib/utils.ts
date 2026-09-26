@@ -40,6 +40,20 @@ export function formatDate(iso: string, opts?: Intl.DateTimeFormatOptions) {
   return new Date(iso).toLocaleDateString("en-IN", opts ?? { day: "numeric", month: "short", year: "numeric" });
 }
 
+/**
+ * Date *and* time. Separate from `formatDate` because `toLocaleDateString`
+ * rejects time options such as `timeStyle` outright.
+ */
+export function formatDateTime(iso?: string, opts?: Intl.DateTimeFormatOptions) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(
+    "en-IN",
+    opts ?? { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" },
+  );
+}
+
 export function relativeDay(iso: string) {
   const d = new Date(iso);
   const now = new Date();

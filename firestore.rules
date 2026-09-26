@@ -83,12 +83,38 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    function isTeacher() {
+      return role() == "teacher";
+    }
+
+    // The staff id carried on the caller's custom claim, or "" when absent.
+    function myStaffId() {
+      return request.auth.token.staffId != null ? request.auth.token.staffId : "";
+    }
+
+    // The student ids linked to a parent's profile.
+    function myStudentIds() {
+      return hasProfile()
+        ? get(/databases/$(database)/documents/appUsers/$(request.auth.uid)).data.studentIds
+        : [];
+    }
+
     // Read-mostly directories: any signed-in user may read; staff may write.
     match /students/{id}   { allow read: if isSignedIn(); allow write: if isStaff(); }
     match /classes/{id}    { allow read: if isSignedIn(); allow write: if isAdmin(); }
-    match /staff/{id}      { allow read: if isStaff();    allow write: if isAdmin(); }
     // Subject master list — any signed-in user may read; only admins manage it.
     match /subjects/{id}   { allow read: if isSignedIn(); allow write: if isAdmin(); }
+
+    // Staff records are admin-managed, with one exception: a staff member may
+    // stamp their own sign-in and password-change status on their own record —
+    // and nothing else on it.
+    match /staff/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+      allow update: if isStaff() && myStaffId() == id
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['lastLoginAt', 'passwordChangedAt', 'mustChangePassword']);
+    }
 
     // Attendance, daily updates, homework, exams — teachers & admins write.
     match /attendance/{id}      { allow read: if isSignedIn(); allow write: if isStaff(); }
@@ -111,5 +137,82 @@ service cloud.firestore {
     // Staff self-service
     match /leaveRequests/{id} { allow read: if isStaff(); allow write: if isStaff(); }
     match /taskItems/{id}     { allow read: if isStaff(); allow write: if isStaff(); }
+
+    // ─────────────────────────────────────────────────────────
+    // Examination system
+    // ─────────────────────────────────────────────────────────
+    // The rules below are the real permission boundary. The UI hides what a
+    // teacher may not touch, but only these stop a crafted request.
+
+    // Sessions and the timetable are public to the school: parents and
+    // students need them to see when a paper is. Only admins change them.
+    match /academicSessions/{id} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /examGroups/{id}       { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /subjectExams/{id}     { allow read: if isSignedIn(); allow write: if isAdmin(); }
+
+    // Who teaches what. Staff read it (it drives their own scoping);
+    // only an admin may allocate.
+    match /teacherAssignments/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+
+    // Grading rules — staff may read, only admins may change. A published
+    // result carries its own copy of the bands, so editing a scale here can
+    // never alter a report card already issued.
+    match /gradeScales/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+
+    // Marks. Never readable by parents — a draft sheet is not a result.
+    // A teacher may only write the sheet for a paper they are allocated, and
+    // only while it is unlocked; moving a sheet out of submitted/verified is
+    // an admin action.
+    match /examMarks/{id} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin()
+        || (isTeacher()
+            && teachesPaper(request.resource.data.classId, request.resource.data.subjectId)
+            && request.resource.data.status in ['draft', 'submitted']
+            && (!exists(/databases/$(database)/documents/examMarks/$(id))
+                || resource.data.status in ['not-started', 'draft']));
+      allow delete: if isAdmin();
+    }
+
+    // A teacher is allocated a paper when a teacherAssignments document exists
+    // for their staff id, that class and that subject. The id is deterministic
+    // precisely so this check is a single cheap lookup.
+    function teachesPaper(classId, subjectId) {
+      return exists(
+        /databases/$(database)/documents/teacherAssignments/$(
+          'ta-' + myStaffId() + '-' + classId + '-' + subjectId
+        )
+      );
+    }
+
+    // Published results. Staff read all; a parent reads only their own
+    // children's. Nobody but an admin writes one — publishing is not a
+    // client-side privilege.
+    match /studentResults/{id} {
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.studentId in myStudentIds());
+      allow write: if isAdmin();
+    }
+
+    // Report card issue log and the audit trail: admin-owned. The audit trail
+    // is append-only — an entry may never be edited or removed, or it would be
+    // no record at all.
+    match /reportCards/{id} { allow read: if isStaff(); allow write: if isAdmin(); }
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    // Notifications are broadcast to a role; any signed-in user may read them
+    // and mark one read, but only staff may raise one.
+    match /notifications/{id} {
+      allow read: if isSignedIn();
+      allow create: if isStaff();
+      allow update: if isStaff()
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']));
+      allow delete: if isAdmin();
+    }
   }
 }

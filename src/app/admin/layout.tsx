@@ -2,7 +2,9 @@
 
 import { PortalShell, NavItem } from "@/components/PortalShell";
 import {
-  LayoutDashboard, BarChart3, Users, GraduationCap, School, Megaphone, Settings, Wallet, BookOpen, Receipt, CreditCard, Calculator, CalendarCheck,
+  LayoutDashboard, BarChart3, Users, GraduationCap, School, Megaphone, Settings, Wallet,
+  BookOpen, Receipt, CreditCard, Calculator, CalendarCheck, ClipboardList, Award, FileCheck2,
+  ScrollText, UserCog,
 } from "lucide-react";
 
 const nav: NavItem[] = [
@@ -10,14 +12,19 @@ const nav: NavItem[] = [
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/students", label: "Students", icon: Users },
   { href: "/admin/staff", label: "Staff", icon: GraduationCap },
+  { href: "/admin/teachers", label: "Teachers", icon: UserCog },
   { href: "/admin/attendance", label: "Staff Attendance", icon: CalendarCheck },
   { href: "/admin/classes", label: "Classes", icon: School },
   { href: "/admin/subjects", label: "Subjects", icon: BookOpen },
+  { href: "/admin/exams", label: "Examinations", icon: ClipboardList },
+  { href: "/admin/grade-scales", label: "Grade Scales", icon: Award },
+  { href: "/admin/report-cards", label: "Report Cards", icon: FileCheck2 },
   { href: "/admin/id-cards", label: "ID Cards", icon: CreditCard },
   { href: "/admin/fee-heads", label: "Fee Heads", icon: Receipt },
   { href: "/admin/fees", label: "Finance", icon: Wallet },
   { href: "/accountant", label: "Accounts", icon: Calculator },
   { href: "/admin/circulars", label: "Circulars", icon: Megaphone },
+  { href: "/admin/audit-logs", label: "Audit Log", icon: ScrollText },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
