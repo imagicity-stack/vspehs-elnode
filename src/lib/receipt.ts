@@ -1,16 +1,17 @@
 // ─────────────────────────────────────────────────────────────
 // Fee payment receipt → downloadable PDF (jsPDF)
 // ─────────────────────────────────────────────────────────────
-// Beautiful, self-contained A4 receipt: school header (ehs.png logo),
+// Beautiful, self-contained A4 receipt: school header (crest + wordmark),
 // student + parent details, fee-head breakdown, amount paid, balance,
 // amount in words, and payment mode/txn id. One click downloads a PDF.
 // ─────────────────────────────────────────────────────────────
 
 import type { Payment, Invoice, Student } from "./types";
+import { SCHOOL_CREST, SCHOOL_LOCATION, SCHOOL_NAME, SCHOOL_TAGLINE, SCHOOL_WEBSITE } from "./branding";
 
-const ISSUER = "The Elden Heights School";
-const TAGLINE = "Towards Eternal Glory";
-const WEBSITE = "www.eldenheights.org";
+const ISSUER = SCHOOL_NAME;
+const TAGLINE = SCHOOL_TAGLINE;
+const WEBSITE = SCHOOL_WEBSITE;
 
 // Palette (RGB)
 const NAVY: [number, number, number] = [31, 45, 90];
@@ -92,7 +93,7 @@ export async function downloadReceipt(data: ReceiptData): Promise<void> {
   const stroke = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
 
   // ── Header ──────────────────────────────────────────────
-  const logo = await loadLogo("/ehs.png");
+  const logo = await loadLogo(SCHOOL_CREST);
   let nameX = M;
   if (logo) {
     const box = 54;
@@ -112,7 +113,7 @@ export async function downloadReceipt(data: ReceiptData): Promise<void> {
   doc.text(TAGLINE, nameX, M + 28, { baseline: "top" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text(WEBSITE, nameX, M + 42, { baseline: "top" });
+  doc.text(`${SCHOOL_LOCATION} · ${WEBSITE}`, nameX, M + 42, { baseline: "top" });
 
   // Receipt meta box (right)
   const boxW = 150, boxH = 54, boxX = PW - M - boxW, boxY = M;

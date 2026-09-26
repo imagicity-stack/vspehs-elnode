@@ -2,7 +2,38 @@
 
 import React from "react";
 import Link from "next/link";
+import { GraduationCap } from "lucide-react";
+import { SCHOOL_CREST, SCHOOL_NAME } from "@/lib/branding";
 import { cn, initials, colorFromString } from "@/lib/utils";
+
+// ── School crest ─────────────────────────────────────────────
+/**
+ * The school badge, with a generic cap as a fallback so a missing asset never
+ * leaves a broken image in the chrome.
+ */
+export function SchoolCrest({ size = 36, className }: { size?: number; className?: string }) {
+  const [ok, setOk] = React.useState(true);
+  if (!ok) {
+    return (
+      <div
+        className={cn("flex items-center justify-center rounded-xl bg-brand-600 text-white", className)}
+        style={{ width: size, height: size }}
+      >
+        <GraduationCap style={{ width: size * 0.58, height: size * 0.58 }} />
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={SCHOOL_CREST}
+      alt={SCHOOL_NAME}
+      onError={() => setOk(false)}
+      className={cn("shrink-0 object-contain", className)}
+      style={{ width: size, height: size }}
+    />
+  );
+}
 
 // ── Avatar ───────────────────────────────────────────────────
 export function Avatar({

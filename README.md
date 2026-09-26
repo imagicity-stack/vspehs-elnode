@@ -154,6 +154,31 @@ Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.t
 
 ---
 
+## 🎓 Branding
+
+The school's identity lives in one place — `src/lib/branding.ts` — and every
+surface reads from it: the login screen, portal sidebar, ID cards, fee receipts
+and report cards.
+
+| Asset | File | Used for |
+|---|---|---|
+| Crest | `public/ehs-crest.png` | Portal chrome, app icons, report card masthead and watermark, receipts |
+| Horizontal lockup | `public/ehs-logo.png` | ID cards, anywhere with room for the wordmark |
+| App icons | `public/icon-*.png`, `apple-touch-icon.png` | PWA install, favicon — generated from the crest |
+
+Overridable without touching code:
+
+| Variable | Default |
+|---|---|
+| `NEXT_PUBLIC_SCHOOL_NAME` | The Elden Heights School |
+| `NEXT_PUBLIC_SCHOOL_LOCATION` | Vishnupuri Campus |
+| `NEXT_PUBLIC_SCHOOL_TAGLINE` | Towards Eternal Glory |
+| `NEXT_PUBLIC_SCHOOL_WEBSITE` | vsp.eldenheights.org |
+
+To rebrand for another campus, set those four and replace the two PNGs.
+`BRAND_MAROON` / `BRAND_GOLD` are sampled from the crest so printed documents
+match the badge exactly.
+
 ## 🪪 ID cards
 
 Students and staff share one card design (`src/components/id-card-parts.tsx`),
@@ -217,7 +242,7 @@ Teacher added → login provisioned → password changed on first sign-in
 | **Examinations** | Admin → Examinations | Exam groups with a status workflow (draft → scheduled → ongoing → marks entry → verification → published → archived), class-wise subject papers, and the generated timetable |
 | **Marks entry** | Teacher → Marks Entry | Only allocated papers appear. Draft / submit, with submitted sheets locked until an admin reopens them |
 | **Verification & publishing** | Admin → Examinations → Results | Validation warnings per class, an explicit override, and class-wise publish / unpublish |
-| **Report cards** | Admin → Report Cards | Individual, class or whole-examination PDFs, built from published snapshots only |
+| **Report cards** | Admin → Report Cards | Individual, class or whole-examination PDFs in the school's livery — crest, maroon and gold rule work, watermarked badge, per-subject performance bars and a verification ID. Built from published snapshots only |
 | **Parent view** | Parent → Examinations | Timetable with syllabus and instructions before; marks, grades and report card after publication |
 | **Analytics** | Teacher → Result Analytics | Class average, high/low, pass rate and grade distribution — for that teacher's papers, after publication |
 | **Audit log** | Admin → Audit Log | Every login, marks and result action with actor, timestamp and before/after |

@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { GraduationCap } from "lucide-react";
-import { SCHOOL_NAME } from "@/lib/branding";
+import { SCHOOL_LOGO, SCHOOL_NAME } from "@/lib/branding";
 
 export const YELLOW = "#f6ce46";
 export const NAVY = "#1f2d5a";
@@ -20,12 +20,12 @@ export const INK = "#3a2a00";
 export const CARD = "idcard relative w-[320px] shrink-0 overflow-hidden rounded-[22px] p-5";
 export const CARD_HEIGHT = 505;
 
-// School logo — uses /public/logo_black.png when present, else a text mark.
+// School logo — the crest-and-wordmark lockup, with a text mark as a fallback.
 export function Logo({ className = "" }: { className?: string }) {
   const [ok, setOk] = useState(true);
   if (ok) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src="/logo_black.png" alt="School logo" onError={() => setOk(false)} className={`mx-auto h-14 w-auto object-contain ${className}`} />;
+    return <img src={SCHOOL_LOGO} alt={SCHOOL_NAME} onError={() => setOk(false)} className={`mx-auto h-14 w-auto object-contain ${className}`} />;
   }
   return (
     <div className={`flex items-center justify-center gap-2 ${className}`} style={{ color: INK }}>

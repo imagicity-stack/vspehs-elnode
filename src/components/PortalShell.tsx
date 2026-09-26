@@ -7,14 +7,14 @@ import { useAuth, portalHome } from "@/lib/auth";
 import { useData } from "@/lib/store";
 import { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Avatar } from "@/components/ui";
+import { Avatar, SchoolCrest } from "@/components/ui";
 import { toast } from "@/components/Toast";
 import { DataHealthBanner } from "@/components/DataHealthBanner";
 import { notificationsFor, unreadCount } from "@/lib/notifications";
 import { isDemoMode } from "@/lib/firebase";
-import { SCHOOL_NAME } from "@/lib/branding";
+import { SCHOOL_LOCATION, SCHOOL_NAME } from "@/lib/branding";
 import {
-  LogOut, Menu, X, GraduationCap, ChevronDown, BellRing, KeyRound, Loader2,
+  LogOut, Menu, X, ChevronDown, BellRing, KeyRound, Loader2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -87,12 +87,11 @@ export function PortalShell({
   const Sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
-          <GraduationCap className="h-5 w-5" />
-        </div>
+        <SchoolCrest size={36} />
         <div className="min-w-0">
-          <p className="truncate text-base font-extrabold leading-tight tracking-tight text-slate-900">{SCHOOL_NAME}</p>
-          <p className="text-[11px] font-medium text-slate-400">{roleLabel[role]}</p>
+          {/* Wraps rather than truncates — a clipped school name reads badly. */}
+          <p className="text-[13px] font-extrabold leading-tight tracking-tight text-slate-900">{SCHOOL_NAME}</p>
+          <p className="truncate text-[11px] font-medium text-slate-400">{roleLabel[role]}</p>
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
@@ -169,9 +168,7 @@ export function PortalShell({
         {/* Sticky top bar */}
         <header className="no-print sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/85 px-4 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white lg:hidden">
-              <GraduationCap className="h-5 w-5" />
-            </div>
+            <SchoolCrest size={32} className="lg:hidden" />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-slate-900">{roleLabel[role]}</p>
               {isDemoMode && <p className="text-[11px] font-medium text-amber-600">Demo mode</p>}

@@ -9,30 +9,40 @@
 // ─────────────────────────────────────────────────────────────
 
 import { StudentExamResult } from "@/lib/types";
-import { SCHOOL_NAME, SCHOOL_WEBSITE } from "@/lib/branding";
+import {
+  BRAND_MAROON, SCHOOL_LOCATION, SCHOOL_NAME, SCHOOL_TAGLINE, SCHOOL_WEBSITE,
+} from "@/lib/branding";
 import { formatDate } from "@/lib/utils";
 import { MARK_STATUS_META } from "@/lib/exams";
-import { GraduationCap, ShieldCheck } from "lucide-react";
+import { SchoolCrest } from "@/components/ui";
+import { ShieldCheck } from "lucide-react";
 
 export function ExamReportCard({ result }: { result: StudentExamResult }) {
   const r = result;
   return (
     <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 shadow-card print:border-0 print:shadow-none">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 border-b-2 border-brand-600 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-            <GraduationCap className="h-7 w-7" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">{SCHOOL_NAME}</h1>
-            <p className="text-sm text-slate-500">Report Card · {r.groupName}</p>
-          </div>
-        </div>
-        <div className="shrink-0 text-right text-xs text-slate-500">
-          <p>Academic Session</p>
-          <p className="font-semibold text-slate-700">{r.sessionName}</p>
-        </div>
+      {/* Masthead — mirrors the printed card */}
+      <div className="border-b-2 pb-4 text-center" style={{ borderColor: BRAND_MAROON }}>
+        <SchoolCrest size={56} className="mx-auto" />
+        <h1
+          className="mt-2 text-xl font-bold uppercase tracking-[0.08em] sm:text-2xl"
+          style={{ color: BRAND_MAROON, fontFamily: "Georgia, 'Times New Roman', serif" }}
+        >
+          {SCHOOL_NAME}
+        </h1>
+        <p className="mt-0.5 text-xs uppercase tracking-widest text-slate-500">
+          {SCHOOL_LOCATION} · {SCHOOL_WEBSITE}
+        </p>
+        <p className="mt-0.5 text-xs italic text-amber-700">{SCHOOL_TAGLINE}</p>
+      </div>
+
+      {/* Title band */}
+      <div
+        className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5 text-white"
+        style={{ background: BRAND_MAROON }}
+      >
+        <p className="text-sm font-bold uppercase tracking-[0.12em]">{r.groupName}</p>
+        <p className="text-xs font-medium">Session {r.sessionName}</p>
       </div>
 
       {/* Student */}
@@ -77,7 +87,7 @@ export function ExamReportCard({ result }: { result: StudentExamResult }) {
                   </td>
                   <td className="px-3 py-2.5 text-right text-slate-500">{l.obtained === null ? "—" : `${l.percent}%`}</td>
                   <td className="px-3 py-2.5 text-center">
-                    <span className="inline-flex min-w-[2.25rem] justify-center rounded-lg bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-700">
+                    <span className="inline-flex min-w-[2.25rem] justify-center rounded-lg bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800">
                       {l.grade}
                     </span>
                   </td>
@@ -90,7 +100,7 @@ export function ExamReportCard({ result }: { result: StudentExamResult }) {
       </div>
 
       {/* Summary */}
-      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-brand-50/60 p-4 text-center sm:grid-cols-4 lg:grid-cols-5">
+      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-amber-200/70 bg-amber-50/50 p-4 text-center sm:grid-cols-4 lg:grid-cols-5">
         <Summary label="Total" value={`${r.totalObtained}/${r.totalMax}`} />
         <Summary label="Percentage" value={`${r.percentage}%`} />
         <Summary label="Overall Grade" value={r.overallGrade} />

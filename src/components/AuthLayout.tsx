@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { GraduationCap } from "lucide-react";
 import { SCHOOL_NAME, SCHOOL_LOCATION } from "@/lib/branding";
+import { SchoolCrest } from "@/components/ui";
 
 export function AuthLayout({
   title, subtitle, children,
@@ -12,8 +12,8 @@ export function AuthLayout({
       {/* Left brand panel */}
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br from-brand-600 to-brand-900 p-12 text-white lg:flex">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
-            <GraduationCap className="h-6 w-6" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white p-1.5 shadow-sm">
+            <SchoolCrest size={36} />
           </div>
           <div className="leading-tight">
             <p className="text-xl font-extrabold">{SCHOOL_NAME}</p>
@@ -39,9 +39,7 @@ export function AuthLayout({
       <div className="flex w-full items-center justify-center px-4 py-12 lg:w-1/2">
         <div className="w-full max-w-sm">
           <Link href="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-              <GraduationCap className="h-5 w-5" />
-            </div>
+            <SchoolCrest size={34} />
             <span className="text-lg font-extrabold leading-tight text-slate-900">{SCHOOL_NAME}</span>
           </Link>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
