@@ -2,7 +2,9 @@
 
 import { Student, Exam, ExamResult, SchoolClass, Grade } from "@/lib/types";
 import { fullName, ageFromDob, formatDate } from "@/lib/utils";
-import { GraduationCap, Star } from "lucide-react";
+import { SCHOOL_LOCATION, SCHOOL_NAME } from "@/lib/branding";
+import { SchoolCrest } from "@/components/ui";
+import { Star } from "lucide-react";
 
 const gradeColor: Record<Grade, string> = {
   "A+": "bg-emerald-100 text-emerald-700",
@@ -30,17 +32,15 @@ export function ReportCard({
       {/* Header */}
       <div className="flex items-center justify-between border-b-2 border-brand-600 pb-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-white">
-            <GraduationCap className="h-7 w-7" />
-          </div>
+          <SchoolCrest size={48} />
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">El-Node Pre-Primary</h1>
-            <p className="text-sm text-slate-500">Progress Report · {exam.name}</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">{SCHOOL_NAME}</h1>
+            <p className="text-sm text-slate-500">{SCHOOL_LOCATION} · Progress Report · {exam.name}</p>
           </div>
         </div>
         <div className="text-right text-xs text-slate-500">
-          <p>Academic Year</p>
-          <p className="font-semibold text-slate-700">2025–2026</p>
+          <p>Assessed On</p>
+          <p className="font-semibold text-slate-700">{formatDate(exam.date)}</p>
         </div>
       </div>
 

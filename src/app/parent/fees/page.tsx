@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { invoiceStatus, invoiceDue } from "@/lib/analytics";
 import { inr, formatDate, fullName, todayISO } from "@/lib/utils";
 import { isDemoMode } from "@/lib/firebase";
+import { SCHOOL_NAME } from "@/lib/branding";
 import {
   isRazorpayConfigured, RAZORPAY_KEY_ID, loadRazorpayScript,
   createRazorpayOrder, verifyRazorpayPayment,
@@ -176,7 +177,7 @@ function PayModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void 
         order_id: order.orderId,
         amount: order.amount,
         currency: order.currency,
-        name: "El-Node Pre-Primary",
+        name: SCHOOL_NAME,
         description: `${invoice.invoiceNo} · ${invoice.period}`,
         prefill: {
           name: student ? fullName(student) : user?.displayName,

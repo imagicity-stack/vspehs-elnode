@@ -23,6 +23,7 @@ import {
   PARENT_EMAIL_DOMAIN,
 } from "./firebase";
 import { isAllowedAdminEmail } from "./admins";
+import { upsertDoc } from "./firestore";
 import { AppUser, Role } from "./types";
 
 const SESSION_KEY = "elnode.session.v2";
@@ -133,6 +134,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth) throw new Error("Auth unavailable.");
     const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
     const resolved = await resolveFirebaseUser(cred.user);
+    // Stamp the sign-in on the staff record so admins can see who is actually
+    // using their account. Best-effort: a failed stamp must not block login.
+    if (resolved.staffId) {
+      upsertDoc("staff", { id: resolved.staffId, lastLoginAt: new Date().toISOString() }).catch(
+        () => {},
+      );
+    }
     return resolved;
   };
 
@@ -191,6 +199,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Your current password is incorrect.");
     }
     await updatePassword(fbUser, newPassword);
+    // Clears the forced first-login prompt and records the change for the
+    // admin's account-status view.
+    if (user?.staffId) {
+      await upsertDoc("staff", {
+        id: user.staffId,
+        passwordChangedAt: new Date().toISOString(),
+        mustChangePassword: false,
+      }).catch(() => {});
+    }
   };
 
   const canChangePassword =

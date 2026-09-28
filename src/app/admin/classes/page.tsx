@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useData } from "@/lib/store";
-import { SchoolClass } from "@/lib/types";
+import { CLASS_LEVELS, SchoolClass } from "@/lib/types";
 import { Card, Badge, Avatar, Progress, Stat, EmptyState, Loading } from "@/components/ui";
 import { attendanceForDate } from "@/lib/analytics";
 import { fullName, todayISO } from "@/lib/utils";
@@ -11,7 +11,7 @@ import {
   UserCheck, GraduationCap,
 } from "lucide-react";
 
-const LEVELS: SchoolClass["level"][] = ["Playgroup", "Nursery", "LKG", "UKG"];
+const LEVELS: SchoolClass["level"][] = [...CLASS_LEVELS];
 
 export default function AdminClasses() {
   const data = useData();

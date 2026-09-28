@@ -17,6 +17,8 @@ platform — with four dedicated, role‑based portals.
   contacts, **authorised pickup persons**, sibling links, previous school, transport
 - **Daily updates** — classroom photos, mood, meals, naps and notes, every day
 - **Attendance** — full daily record with late/absent tracking
+- **Examinations** — timetable with syllabus and instructions before the exam,
+  then marks, grades and a downloadable report card once results are published
 - **Homework & activities** with due dates
 - **Circulars & event alerts** (pinned notices)
 - **Fees** — invoices, dues, **online pay flow**, receipts
@@ -29,6 +31,12 @@ platform — with four dedicated, role‑based portals.
 - **My students** — roster with one‑tap safety details (allergies, contacts, pickup)
 - **Post daily updates** with mood/meal/nap + photos
 - **Post homework**
+- **Marks entry** — only the class-subject papers allocated to you; draft, submit
+  and lock, with range and completeness validation
+- **My classes** — the roster behind each allocated class, with attendance and
+  examination status
+- **Result analytics** — class average, high/low, pass rate and grade
+  distribution for your own papers, once results are published
 - **Skill assessments** — enter grades per developmental area, **publish to parents**
 - **Daily task checklist** (teaching / care / admin / safety)
 - **My attendance** — self **check-in / check-out**, month calendar of your own
@@ -53,6 +61,12 @@ platform — with four dedicated, role‑based portals.
   export throughout; approved leave is surfaced as you mark
 - **ID cards** — student *and* **staff** cards, singly from the staff directory
   or in bulk, printed at CR80 size (see below)
+- **Teachers** — class & subject allocation matrix, and the full login lifecycle
+  (create, disable, reset, regenerate, account status, password-change state)
+- **Examinations** — exam groups, subject papers, timetable, marks-entry
+  progress, result verification and class-wise publishing (see below)
+- **Grade scales** and **report card** generation
+- **Audit log** of every examination and account action
 - **Leave approvals**
 - **Classes** overview with occupancy & class‑teacher allocation
 - **Finance** overview & class‑wise collection
@@ -140,6 +154,31 @@ Auth + Firestore — no code changes needed (`isDemoMode` in `src/lib/firebase.t
 
 ---
 
+## 🎓 Branding
+
+The school's identity lives in one place — `src/lib/branding.ts` — and every
+surface reads from it: the login screen, portal sidebar, ID cards, fee receipts
+and report cards.
+
+| Asset | File | Used for |
+|---|---|---|
+| Crest | `public/ehs-crest.png` | Portal chrome, app icons, report card masthead and watermark, receipts |
+| Horizontal lockup | `public/ehs-logo.png` | ID cards, anywhere with room for the wordmark |
+| App icons | `public/icon-*.png`, `apple-touch-icon.png` | PWA install, favicon — generated from the crest |
+
+Overridable without touching code:
+
+| Variable | Default |
+|---|---|
+| `NEXT_PUBLIC_SCHOOL_NAME` | The Elden Heights School |
+| `NEXT_PUBLIC_SCHOOL_LOCATION` | Vishnupuri Campus |
+| `NEXT_PUBLIC_SCHOOL_TAGLINE` | Towards Eternal Glory |
+| `NEXT_PUBLIC_SCHOOL_WEBSITE` | vsp.eldenheights.org |
+
+To rebrand for another campus, set those four and replace the two PNGs.
+`BRAND_MAROON` / `BRAND_GOLD` are sampled from the crest so printed documents
+match the badge exactly.
+
 ## 🪪 ID cards
 
 Students and staff share one card design (`src/components/id-card-parts.tsx`),
@@ -177,6 +216,87 @@ The working day drives punctuality and hours, and is configurable:
 A check-in past start + grace files as **late** (with the minutes recorded);
 hours on site are measured between the two punches. Weekends are excluded from
 rates and trends, and staff on **approved leave** are flagged in the register.
+
+## 📝 Examination management
+
+A full marks-based examination system alongside the pre-primary skill
+assessments, spanning the Super Admin, Teacher and Parent portals.
+
+### The workflow
+
+```
+Teacher added → login provisioned → password changed on first sign-in
+→ classes & subjects allocated → exam group created → grade scale chosen
+→ subject papers created → timetable visible to parents
+→ examination conducted → teachers enter & submit marks (sheet locks)
+→ admin verifies → results published class-wise → parent portal updated
+→ report cards generated → teachers see analytics
+```
+
+### Who owns what
+
+| Module | Where | Notes |
+|---|---|---|
+| **Teacher allocation & logins** | Admin → Teachers | The (class × subject) matrix, plus create / disable / reset / regenerate on the Firebase account, last login and password status |
+| **Grade scales** | Admin → Grade Scales | Percentage bands with grade, grade point and remark. Gaps and overlaps are flagged before saving; a CBSE eight-band scale ships as a one-click seed |
+| **Examinations** | Admin → Examinations | Exam groups with a status workflow (draft → scheduled → ongoing → marks entry → verification → published → archived), class-wise subject papers, and the generated timetable |
+| **Marks entry** | Teacher → Marks Entry | Only allocated papers appear. Draft / submit, with submitted sheets locked until an admin reopens them |
+| **Verification & publishing** | Admin → Examinations → Results | Validation warnings per class, an explicit override, and class-wise publish / unpublish |
+| **Report cards** | Admin → Report Cards | Individual, class or whole-examination PDFs in the school's livery — crest, maroon and gold rule work, watermarked badge, per-subject performance bars and a verification ID. Built from published snapshots only |
+| **Parent view** | Parent → Examinations | Timetable with syllabus and instructions before; marks, grades and report card after publication |
+| **Analytics** | Teacher → Result Analytics | Class average, high/low, pass rate and grade distribution — for that teacher's papers, after publication |
+| **Audit log** | Admin → Audit Log | Every login, marks and result action with actor, timestamp and before/after |
+
+### Rules the code enforces
+
+- **A teacher can only mark what they are allocated.** `teacherAssignments` holds
+  one document per (teacher, class, subject); `Staff.assignedClassIds × subjects`
+  is a cross-product and cannot express "Maths in 8A but not in 9A". The Firestore
+  rules check for the assignment document, so the UI is not the boundary.
+- **Marks cannot exceed the maximum**, and submit is blocked while any value is
+  out of range or any student is unmarked.
+- **Submitted sheets lock.** Only an admin can reopen one, and the reason is
+  recorded.
+- **Draft marks never reach parents.** `examMarks` is skipped entirely for a
+  parent session and denied by the rules.
+- **Results are snapshots.** Publishing writes one `studentResults` document per
+  student carrying the student details, subject lines, totals *and the grade
+  bands in force at that moment*. Editing a grade scale, renaming a subject or
+  changing a teacher afterwards cannot alter an issued report card.
+- **Report cards come from published results only** — never from live marks.
+- **Parents only see their own children.** The results listener is query-scoped
+  to the linked student ids, matching the rule that enforces it.
+
+### Mark statuses
+
+| Status | Counts towards the total | Treated as a fail |
+|---|---|---|
+| Present | yes, at the mark entered | only below the passing mark |
+| Absent / Not appeared | yes, as zero | yes |
+| Medical leave / Exempted | no — left out entirely | no |
+
+Leaving medical and exempted papers out of the total stops an excused absence
+from dragging the percentage down.
+
+### Firestore collections
+
+`academicSessions`, `teacherAssignments`, `gradeScales`, `examGroups`,
+`subjectExams`, `examMarks`, `studentResults`, `reportCards`, `auditLogs`,
+`notifications`.
+
+Two naming notes: the marks-based papers live in **`subjectExams`** and the
+published results in **`studentResults`**, because `exams` and `examResults`
+already hold the pre-primary skill assessments and reusing those names would
+collide with live data. Marks are one document per paper (keyed by student
+inside it), so a teacher's submit is a single atomic write rather than one per
+child.
+
+### Class levels
+
+`CLASS_LEVELS` in `src/lib/types.ts` runs Playgroup → UKG → Class 1–12, so the
+same install serves a pre-primary wing and a senior school. A `SchoolClass` is
+a level *plus* a section, so "Class 8" + "A" is the class written 8A — there is
+no separate section entity, and examinations scope by `classId` alone.
 
 ## 📱 Progressive Web App (PWA)
 
@@ -240,9 +360,12 @@ src/
     ├── types.ts                 # domain model
     ├── firebase.ts              # Firebase init + demo-mode detection
     ├── auth.tsx                 # auth context (7-digit + email)
-    ├── store.tsx                # client data store (seed + mutators)
+    ├── store.tsx                # client data store (collections + mutators)
     ├── mockData.ts              # seeded demo dataset
     ├── analytics.ts             # derived dashboard analytics
+    ├── exams.ts                 # grading, result computation, validation, scoping
+    ├── reportCardPdf.ts         # report card → PDF (jsPDF)
+    ├── notifications.ts         # which notices reach which role
     └── firestore.ts             # production Firestore helpers + seeder
 ```
 
