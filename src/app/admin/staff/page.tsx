@@ -17,6 +17,24 @@ import {
 
 const BLOOD_GROUPS: BloodGroup[] = ["Unknown", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
+/** Calls a protected admin route with the caller's ID token, keeping the body. */
+async function callAdminJson(
+  path: string, payload: unknown,
+): Promise<{ ok: boolean; data?: any }> {
+  if (!isFirebaseConfigured || !auth?.currentUser) return { ok: false };
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return { ok: res.ok, data: await res.json().catch(() => ({})) };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // Calls a protected admin route with the caller's ID token. Returns ok/false.
 async function callAdmin(path: string, payload: unknown): Promise<boolean> {
   if (!isFirebaseConfigured || !auth?.currentUser) return false;
@@ -482,6 +500,7 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
   const data = useData();
   const [form, setForm] = useState({
     name: staff.name,
+    email: staff.email,
     phone: staff.phone,
     qualification: staff.qualification,
     experienceYears: String(staff.experienceYears),
@@ -500,10 +519,40 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
 
   const isTeacher = staff.role === "teacher" || staff.role === "helper";
 
+  const emailClean = form.email.trim().toLowerCase();
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailClean);
+  const emailChanged = emailClean !== staff.email.trim().toLowerCase();
+  const emailTaken = emailChanged
+    && data.staff.some((s) => s.id !== staff.id && s.email.trim().toLowerCase() === emailClean);
+
   const save = async () => {
-    if (!form.name) return;
+    if (!form.name || !emailValid || emailTaken) return;
     setBusy(true);
     const status = form.status as Staff["status"];
+
+    // The email is the sign-in ID, so it moves through the server (which also
+    // moves the Firebase Auth account). If that fails, stop before saving the
+    // rest — a record showing an address they can't sign in with is worse than
+    // no change at all.
+    if (emailChanged) {
+      if (isFirebaseConfigured) {
+        const res = await callAdminJson("/api/staff/manage", {
+          action: "update-email", staffId: staff.id, email: staff.email, newEmail: emailClean,
+        });
+        if (!res.ok) {
+          toast.error(res.data?.error ?? "Couldn't change the login email.");
+          setBusy(false);
+          return;
+        }
+        toast.success(
+          res.data?.provisioned
+            ? `${form.name} now signs in as ${emailClean}.`
+            : "Email updated — create their login to activate it.",
+        );
+      }
+      data.updateStaff(staff.id, { email: emailClean });
+    }
+
     data.updateStaff(staff.id, {
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -523,7 +572,9 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
     // Keep the login in step with the record: an inactive staff member can't sign in.
     if (isFirebaseConfigured) {
       const ok = await callAdmin("/api/staff/manage", {
-        action: "update", staffId: staff.id, email: staff.email,
+        // Address the account by whatever it is *now* — the email may have
+        // just moved a few lines above.
+        action: "update", staffId: staff.id, email: emailChanged ? emailClean : staff.email,
         role: staff.role, name: form.name.trim(), disabled: status === "inactive",
       });
       if (ok && status === "inactive") toast.info(`${form.name}'s login is now disabled.`);
@@ -545,13 +596,32 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
         </button>
         <h3 className="text-lg font-bold text-slate-900">Edit Staff</h3>
         <p className="text-sm text-slate-500">
-          {staff.email} · <span className="capitalize">{staff.role}</span>
+          {staff.staffCode} · <span className="capitalize">{staff.role}</span>
         </p>
         <div className="mt-4 space-y-3">
           <PhotoUpload subjectId={staff.id} kind="staff" name={form.name || staff.name} value={photo} onChange={setPhoto} />
           <div>
             <label className="label">Full name</label>
             <input value={form.name} onChange={(e) => set("name", e.target.value)} className="input" autoFocus />
+          </div>
+          <div>
+            <label className="label">Work email — this is their login ID</label>
+            <input
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="name@school.app"
+              className={`input ${(form.email.trim() && !emailValid) || emailTaken ? "border-rose-400 focus:ring-rose-300" : ""}`}
+            />
+            {emailTaken ? (
+              <p className="mt-1 text-xs text-rose-600">Another staff member already uses that email.</p>
+            ) : form.email.trim() && !emailValid ? (
+              <p className="mt-1 text-xs text-rose-600">Enter a valid email address.</p>
+            ) : emailChanged && staff.authUid ? (
+              <p className="mt-1 text-xs text-amber-600">
+                This moves their Firebase login too — they&apos;ll sign in with the new address.
+                Their password is unaffected.
+              </p>
+            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -638,7 +708,7 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
         </div>
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
-          <button onClick={save} disabled={!form.name || busy} className="btn-primary flex-1 py-2.5">
+          <button onClick={save} disabled={!form.name || !emailValid || emailTaken || busy} className="btn-primary flex-1 py-2.5">
             {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : "Save Changes"}
           </button>
         </div>
