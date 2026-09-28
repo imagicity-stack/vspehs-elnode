@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { useData, type AuditActor } from "@/lib/store";
 import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge, Avatar, EmptyState, Loading, Progress, Table, Th, Td } from "@/components/ui";
+import { MarksSheet } from "@/components/MarksSheet";
 import { formatDate, formatTime, fullName, todayISO } from "@/lib/utils";
 import { studentAttendanceRate } from "@/lib/analytics";
 import { ExamGroup, SubjectExam } from "@/lib/types";
@@ -612,7 +613,23 @@ function MarksTab({
   group, papers, actor,
 }: { group: ExamGroup; papers: SubjectExam[]; actor: AuditActor }) {
   const data = useData();
+  const [openExamId, setOpenExamId] = useState<string | null>(null);
   const subjectName = (id: string) => data.subjects.find((s) => s.id === id)?.name ?? id;
+
+  // The examination office can fill in any paper — a teacher on leave, a
+  // subject with nobody allocated, or a correction after reopening.
+  const open = openExamId ? data.subjectExams.find((e) => e.id === openExamId) : undefined;
+  if (open) {
+    return (
+      <MarksSheet
+        exam={open}
+        actor={actor}
+        canReopen
+        backLabel="Marks entry"
+        onBack={() => setOpenExamId(null)}
+      />
+    );
+  }
 
   const reopen = (examId: string, label: string) => {
     const reason = prompt(`Reopen ${label} for editing? Give a reason for the audit log:`);
@@ -686,21 +703,35 @@ function MarksTab({
                 const label = `${subjectName(p.subjectId)} · ${cls?.name}`;
                 return (
                   <div key={p.id} className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-800">{subjectName(p.subjectId)}</p>
+                    <button
+                      onClick={() => setOpenExamId(p.id)}
+                      className="min-w-0 text-left"
+                      title={`Open the ${subjectName(p.subjectId)} marks sheet`}
+                    >
+                      <p className="font-medium text-slate-800 hover:text-brand-600">{subjectName(p.subjectId)}</p>
                       <p className="truncate text-xs text-slate-400">
                         {formatDate(p.date)} · {p.maxMarks} marks
                         {teacher ? ` · ${teacher.name}` : " · no evaluator assigned"}
                         {sheet?.submittedAt ? ` · submitted ${formatDate(sheet.submittedAt)}` : ""}
                         {sheet?.reopenReason ? ` · reopened: ${sheet.reopenReason}` : ""}
                       </p>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold text-slate-600">
                         {prog.entered}/{prog.total}
                       </span>
                       <div className="w-24"><Progress value={prog.percent} tone={prog.complete ? "green" : prog.percent ? "amber" : "slate"} /></div>
                       <Badge tone={meta.tone}>{meta.label}</Badge>
+                      {(prog.status === "not-started" || prog.status === "draft") && (
+                        <button
+                          onClick={() => setOpenExamId(p.id)}
+                          className="btn-ghost px-2.5 py-1.5 text-xs"
+                          title="Enter marks for this paper"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          {prog.entered > 0 ? "Continue" : "Enter marks"}
+                        </button>
+                      )}
                       {prog.status === "submitted" && (
                         <>
                           <button
