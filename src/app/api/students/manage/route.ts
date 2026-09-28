@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp, isAuthorizedAdmin } from "@/lib/firebaseAdmin";
+import { getAdminApp, authorizeAdmin } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,8 +25,12 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid auth token." }, { status: 401 });
   }
-  if (!(await isAuthorizedAdmin(app, caller.email))) {
-    return NextResponse.json({ error: "Not authorised." }, { status: 403 });
+  const adminAuthz = await authorizeAdmin(app, caller);
+  if (!adminAuthz.ok) {
+    return NextResponse.json(
+      { error: "Not authorised.", detail: adminAuthz.reason, email: caller.email ?? null },
+      { status: 403 },
+    );
   }
 
   let body: { action?: string; studentId?: string; admissionNo?: string; pin?: string };

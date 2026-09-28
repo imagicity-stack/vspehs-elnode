@@ -540,7 +540,7 @@ function EditStaffModal({ staff, onClose }: { staff: Staff; onClose: () => void 
           action: "update-email", staffId: staff.id, email: staff.email, newEmail: emailClean,
         });
         if (!res.ok) {
-          toast.error(res.data?.error ?? "Couldn't change the login email.");
+          toast.error(res.data?.detail || res.data?.error || "Couldn't change the login email.");
           setBusy(false);
           return;
         }

@@ -40,6 +40,10 @@ async function callAdmin(path: string, payload: unknown): Promise<{ ok: boolean;
   }
 }
 
+/** The server's explanation for a failed admin call, or a fallback. */
+const why = (res: { ok: boolean; data?: any }, fallback: string) =>
+  res.data?.detail || res.data?.error || fallback;
+
 /** Teaching roles only — accountants never hold class-subject assignments. */
 const TEACHING_ROLES = new Set(["teacher", "helper"]);
 
@@ -420,7 +424,7 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
       if (!res.ok) {
         // Put the field back so the form never shows an address that isn't live.
         setEmailDraft(previous);
-        toast.error(res.data?.error ?? "Couldn't change the login email.");
+        toast.error(why(res, "Couldn't change the login email."));
         return;
       }
 
@@ -460,7 +464,7 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
           summary: `Login created for ${teacher.email}`,
         });
       } else {
-        toast.error("Couldn't create the login — check the server's Firebase Admin setup.");
+        toast.error(why(res, "Couldn't create the login — check the server's Firebase Admin setup."));
       }
     });
 
@@ -480,7 +484,7 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
           summary: "Password reset to the default; change forced at next sign-in",
         });
       } else {
-        toast.error("Couldn't reset the password.");
+        toast.error(why(res, "Couldn't reset the password."));
       }
     });
 
@@ -500,7 +504,7 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
           summary: disabled ? "Access removed" : "Access restored",
         });
       } else {
-        toast.error("Couldn't update the login.");
+        toast.error(why(res, "Couldn't update the login."));
       }
     });
 
@@ -510,7 +514,7 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
         action: "status", staffId: teacher.id, email: teacher.email,
       });
       if (res.ok) setStatus(res.data);
-      else toast.error("Couldn't read the account status.");
+      else toast.error(why(res, "Couldn't read the account status."));
     });
 
   return (
