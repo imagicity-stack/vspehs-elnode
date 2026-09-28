@@ -37,7 +37,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authorised." }, { status: 403 });
   }
 
-  let body: { action?: string; staffId?: string; email?: string; role?: string; disabled?: boolean; name?: string; password?: string };
+  let body: {
+    action?: string; staffId?: string; email?: string; newEmail?: string;
+    role?: string; disabled?: boolean; name?: string; password?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -79,6 +82,82 @@ export async function POST(req: Request) {
     } catch (e: any) {
       return NextResponse.json({ error: "Could not read account.", detail: e?.message }, { status: 502 });
     }
+  }
+
+  // Changes the address a staff member signs in with. The Firestore record and
+  // the Firebase Auth account have to move together — updating only the record
+  // would leave them signing in with the old address while the directory shows
+  // the new one.
+  if (body.action === "update-email") {
+    const newEmail = String(body.newEmail || "").trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) {
+      return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+    }
+    if (newEmail === email) {
+      return NextResponse.json({ ok: true, staffId, email: newEmail, unchanged: true });
+    }
+
+    // Prefer the uid stored on the record: if a previous change half-applied,
+    // looking the account up by the old address would find nothing.
+    let targetUid = uid;
+    if (!targetUid) {
+      try {
+        const stored = (await db.collection("staff").doc(staffId).get()).data()?.authUid;
+        if (stored) {
+          await adminAuth.getUser(String(stored));
+          targetUid = String(stored);
+        }
+      } catch {
+        targetUid = null;
+      }
+    }
+
+    // Refuse if the address already belongs to someone else.
+    try {
+      const holder = await adminAuth.getUserByEmail(newEmail);
+      if (holder.uid !== targetUid) {
+        return NextResponse.json(
+          { error: "That email already has a login on this project." },
+          { status: 409 },
+        );
+      }
+    } catch {
+      /* nobody holds it — good */
+    }
+    try {
+      const clash = await db.collection("staff").where("email", "==", newEmail).get();
+      if (clash.docs.some((d) => d.id !== staffId)) {
+        return NextResponse.json(
+          { error: "Another staff member already uses that email." },
+          { status: 409 },
+        );
+      }
+    } catch {
+      /* the Auth check above is the authoritative one */
+    }
+
+    if (targetUid) {
+      try {
+        await adminAuth.updateUser(targetUid, { email: newEmail });
+      } catch (e: any) {
+        return NextResponse.json(
+          { error: "Could not update the login email.", detail: e?.message },
+          { status: 502 },
+        );
+      }
+      try {
+        await db.collection("appUsers").doc(targetUid).set({ email: newEmail }, { merge: true });
+      } catch { /* the Auth account is the source of truth for sign-in */ }
+    }
+
+    await db.collection("staff").doc(staffId).set(
+      { email: newEmail, ...(targetUid ? { authUid: targetUid } : {}) },
+      { merge: true },
+    );
+
+    return NextResponse.json({
+      ok: true, staffId, email: newEmail, provisioned: Boolean(targetUid), uid: targetUid,
+    });
   }
 
   if (body.action === "reset") {

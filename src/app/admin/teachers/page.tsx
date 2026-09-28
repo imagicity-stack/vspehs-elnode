@@ -8,7 +8,7 @@
 // details) stay on Admin → Staff; this page owns assignments and accounts.
 // ─────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { useData, type AuditActor } from "@/lib/store";
@@ -382,12 +382,66 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [cred, setCred] = useState<{ email: string; password: string } | null>(null);
   const [status, setStatus] = useState<any>(null);
+  const [emailDraft, setEmailDraft] = useState(teacher.email);
+
+  // Follow the record when it changes underneath us (another admin's edit, or
+  // our own save landing), but never while an edit is in progress.
+  useEffect(() => {
+    setEmailDraft(teacher.email);
+  }, [teacher.email]);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
     await fn();
     setBusy(null);
   };
+
+  const emailClean = emailDraft.trim().toLowerCase();
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailClean);
+  const emailChanged = emailClean !== teacher.email.trim().toLowerCase();
+  const emailTaken = emailChanged
+    && data.staff.some((s) => s.id !== teacher.id && s.email.trim().toLowerCase() === emailClean);
+
+  const saveEmail = () =>
+    run("email", async () => {
+      if (!emailValid || emailTaken || !emailChanged) return;
+      const previous = teacher.email;
+
+      if (!isFirebaseConfigured) {
+        // Demo mode has no Auth account to keep in step.
+        data.updateStaff(teacher.id, { email: emailClean });
+        toast.success(`Login email changed to ${emailClean}.`);
+        return;
+      }
+
+      const res = await callAdmin("/api/staff/manage", {
+        action: "update-email", staffId: teacher.id, email: previous, newEmail: emailClean,
+      });
+      if (!res.ok) {
+        // Put the field back so the form never shows an address that isn't live.
+        setEmailDraft(previous);
+        toast.error(res.data?.error ?? "Couldn't change the login email.");
+        return;
+      }
+
+      data.updateStaff(teacher.id, { email: emailClean });
+      data.logAudit({
+        action: "teacher.login-created",
+        entity: teacher.name,
+        entityId: teacher.id,
+        actorId: actor.id, actorName: actor.name, actorRole: actor.role,
+        summary: res.data?.provisioned
+          ? "Login email changed — they now sign in with the new address"
+          : "Email updated (no login provisioned yet)",
+        before: previous,
+        after: emailClean,
+      });
+      toast.success(
+        res.data?.provisioned
+          ? `${teacher.name} now signs in as ${emailClean}.`
+          : `Email saved. Create their login to activate it.`,
+      );
+    });
 
   const createLogin = () =>
     run("create", async () => {
@@ -461,8 +515,45 @@ function AccountTab({ teacher, actor }: { teacher: Staff; actor: AuditActor }) {
 
   return (
     <div className="space-y-5">
+      {/* The email is the login ID, so it's edited here rather than shown flat. */}
+      <div className="rounded-xl border border-slate-200 p-3">
+        <label className="label flex items-center gap-1.5">
+          <Mail className="h-3.5 w-3.5" /> Work email — this is their login ID
+        </label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={emailDraft}
+            onChange={(e) => setEmailDraft(e.target.value)}
+            placeholder="name@school.app"
+            className={`input ${(emailDraft.trim() && !emailValid) || emailTaken ? "border-rose-400 focus:ring-rose-200" : ""}`}
+          />
+          <button
+            onClick={saveEmail}
+            disabled={!emailChanged || !emailValid || emailTaken || busy !== null}
+            className="btn-primary shrink-0"
+          >
+            {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            Update email
+          </button>
+        </div>
+        {emailTaken ? (
+          <p className="mt-1.5 text-xs text-rose-600">Another staff member already uses that email.</p>
+        ) : emailDraft.trim() && !emailValid ? (
+          <p className="mt-1.5 text-xs text-rose-600">Enter a valid email address.</p>
+        ) : teacher.authUid ? (
+          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-slate-400">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Changing this moves their Firebase login too — they sign in with the new address
+            straight away, and their password is unaffected.
+          </p>
+        ) : (
+          <p className="mt-1.5 text-xs text-slate-400">
+            No login exists yet. Save the email, then create the login below.
+          </p>
+        )}
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field icon={<Mail className="h-4 w-4" />} label="Work email (login)" value={teacher.email} />
         <Field icon={<Phone className="h-4 w-4" />} label="Mobile" value={teacher.phone || "—"} />
         <Field icon={<Fingerprint className="h-4 w-4" />} label="Firebase UID" value={teacher.authUid || "Not provisioned"} mono />
         <Field
