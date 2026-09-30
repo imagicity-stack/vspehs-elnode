@@ -14,9 +14,14 @@ import {
   Loader2, Copy, ShieldCheck, Upload, Download, FileText, Edit2, Trash2, CreditCard,
 } from "lucide-react";
 
-// Calls a protected admin route with the caller's ID token. Returns ok/false.
-async function callAdmin(path: string, payload: unknown): Promise<boolean> {
-  if (!isFirebaseConfigured || !auth?.currentUser) return false;
+/** Calls a protected admin route with the caller's ID token, keeping the body
+ *  so a failure can report the server's own reason rather than a guess. */
+async function callAdminJson(
+  path: string, payload: unknown,
+): Promise<{ ok: boolean; data?: any }> {
+  if (!isFirebaseConfigured || !auth?.currentUser) {
+    return { ok: false, data: { error: "Firebase is not connected in this build." } };
+  }
   try {
     const token = await auth.currentUser.getIdToken();
     const res = await fetch(path, {
@@ -24,10 +29,15 @@ async function callAdmin(path: string, payload: unknown): Promise<boolean> {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     });
-    return res.ok;
-  } catch {
-    return false;
+    return { ok: res.ok, data: await res.json().catch(() => ({})) };
+  } catch (e) {
+    return { ok: false, data: { error: e instanceof Error ? e.message : "Request failed." } };
   }
+}
+
+// Same call for the places that only need to know whether it worked.
+async function callAdmin(path: string, payload: unknown): Promise<boolean> {
+  return (await callAdminJson(path, payload)).ok;
 }
 
 // ── CSV template ──────────────────────────────────────────────
@@ -130,7 +140,12 @@ export default function AdminStudents() {
   const [classId, setClassId] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [repairOpen, setRepairOpen] = useState(false);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
+
+  // Students saved without a parent login, so the gap is visible from the
+  // header rather than only surfacing when a parent fails to sign in.
+  const missingLogins = data.students.filter((s) => !s.parentAuthUid).length;
 
   const rows = data.students
     .filter((s) => classId === "all" || s.classId === classId)
@@ -179,6 +194,20 @@ export default function AdminStudents() {
           <p className="mt-1 text-sm text-slate-500">Directory of all enrolled children.</p>
         </div>
         <div className="flex gap-2">
+          {isFirebaseConfigured && (
+            <button
+              onClick={() => setRepairOpen(true)}
+              className="btn-ghost"
+              title="Create the Firebase login for any student that was saved without one"
+            >
+              <ShieldCheck className="h-4 w-4" /> Fix parent logins
+              {missingLogins > 0 && (
+                <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700">
+                  {missingLogins}
+                </span>
+              )}
+            </button>
+          )}
           <button onClick={() => setBulkOpen(true)} className="btn-ghost">
             <Upload className="h-4 w-4" /> Bulk Upload
           </button>
@@ -302,6 +331,7 @@ export default function AdminStudents() {
 
       {addOpen && <AddStudentModal onClose={() => setAddOpen(false)} />}
       {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
+      {repairOpen && <RepairLoginsModal onClose={() => setRepairOpen(false)} />}
       {editStudent && <EditStudentModal student={editStudent} onClose={() => setEditStudent(null)} />}
       {resetCred && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -326,6 +356,183 @@ export default function AdminStudents() {
 }
 
 // ── Bulk Upload Modal ─────────────────────────────────────────
+// ── Repair parent logins ──────────────────────────────────────
+// A student can end up saved without a parent login: the record is written to
+// Firestore first, so anything that stops the Auth account — a bad token, a
+// server that is not yet redeployed, a transient Admin SDK error — leaves the
+// child in the directory with no way for the parent to sign in. `create` then
+// refuses with 409 because the record exists, so before this the only repair
+// was to delete and re-add the student. This runs the idempotent `create-login`
+// action over them instead: an account that already exists is re-synced, never
+// duplicated, so the pass is safe to repeat.
+function RepairLoginsModal({ onClose }: { onClose: () => void }) {
+  const data = useData();
+  // `parentAuthUid` is only written by newer server code, so a student missing
+  // it may still have a perfectly good login — the pass proves it either way.
+  const unrecorded = data.students.filter((s) => !s.parentAuthUid);
+  const [allStudents, setAllStudents] = useState(unrecorded.length === 0);
+  const targets = allStudents ? data.students : unrecorded;
+
+  const [phase, setPhase] = useState<"confirm" | "running" | "done">("confirm");
+  const [progress, setProgress] = useState(0);
+  const [tally, setTally] = useState({ created: 0, existed: 0, failed: 0, reason: "" });
+
+  const run = async () => {
+    setPhase("running");
+    const queue = [...targets];
+    let created = 0, existed = 0, failed = 0, reason = "";
+    let seen = 0;
+
+    // A handful at a time: sequential is far too slow for a full school, and
+    // all-at-once trips the Admin SDK's own rate limits.
+    const worker = async () => {
+      for (;;) {
+        const s = queue.shift();
+        if (!s) return;
+        const { ok, data: body } = await callAdminJson("/api/students/manage", {
+          action: "create-login", studentId: s.id, admissionNo: s.admissionNo, pin: DEFAULT_PASSWORD,
+        });
+        if (ok) { if (body?.existed) existed++; else created++; }
+        else {
+          failed++;
+          if (!reason) reason = body?.detail || body?.error || "The server did not say why.";
+        }
+        setProgress(++seen);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+
+    setTally({ created, existed, failed, reason });
+    setPhase("done");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={phase === "running" ? undefined : onClose} />
+      <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-soft">
+        {phase === "confirm" && (
+          <>
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Fix parent logins</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Creates the missing Firebase login for students already in the directory.
+                </p>
+              </div>
+              <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {!isFirebaseConfigured ? (
+              <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-700">
+                Demo mode — parent logins live in Firebase, so there is nothing to repair here.
+              </p>
+            ) : (
+              <>
+                <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                  <p>
+                    <span className="font-semibold text-slate-900">{unrecorded.length}</span> of{" "}
+                    {data.students.length} student{data.students.length !== 1 ? "s" : ""} have no parent login
+                    on record.
+                  </p>
+                  <p className="mt-2 text-xs">
+                    Every child is checked against Firebase. A login that already exists is left alone and
+                    simply recorded, so running this is safe and can be repeated. Passwords are never changed —
+                    new logins start on{" "}
+                    <span className="font-mono font-semibold">{DEFAULT_PASSWORD}</span>.
+                  </p>
+                </div>
+
+                <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={allStudents}
+                    onChange={(e) => setAllStudents(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    Check all {data.students.length} students
+                    <span className="block text-xs text-slate-400">
+                      Slower, but confirms every parent can sign in — not just the ones flagged above.
+                    </span>
+                  </span>
+                </label>
+
+                <div className="mt-5 flex gap-2">
+                  <button onClick={onClose} className="btn-ghost flex-1 py-3">Cancel</button>
+                  <button onClick={run} disabled={!targets.length} className="btn-primary flex-1 py-3">
+                    <ShieldCheck className="h-4 w-4" />
+                    Check {targets.length} student{targets.length !== 1 ? "s" : ""}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {phase === "running" && (
+          <div className="py-6 text-center">
+            <Loader2 className="mx-auto h-10 w-10 animate-spin text-brand-600" />
+            <p className="mt-4 font-semibold text-slate-900">
+              Checking {progress} of {targets.length}…
+            </p>
+            <div className="mx-auto mt-3 h-2 w-64 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-brand-600 transition-all"
+                style={{ width: `${targets.length ? (progress / targets.length) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="mt-3 text-xs text-slate-400">Leave this open until it finishes.</p>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <div className="text-center">
+            <div className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${
+              tally.failed ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
+              {tally.failed ? <AlertTriangle className="h-7 w-7" /> : <CheckCircle2 className="h-7 w-7" />}
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">
+              {tally.failed ? "Finished with some failures" : "All parent logins are in place"}
+            </h3>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-emerald-50 p-3">
+                <p className="text-xl font-bold text-emerald-700">{tally.created}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-600">Created</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xl font-bold text-slate-700">{tally.existed}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Already had one</p>
+              </div>
+              <div className={`rounded-xl p-3 ${tally.failed ? "bg-rose-50" : "bg-slate-50"}`}>
+                <p className={`text-xl font-bold ${tally.failed ? "text-rose-700" : "text-slate-700"}`}>{tally.failed}</p>
+                <p className={`text-[11px] font-semibold uppercase tracking-wide ${tally.failed ? "text-rose-600" : "text-slate-500"}`}>Failed</p>
+              </div>
+            </div>
+
+            {tally.created > 0 && (
+              <p className="mt-3 text-xs text-slate-500">
+                New logins use the admission number with the password{" "}
+                <span className="font-mono font-semibold">{DEFAULT_PASSWORD}</span>.
+              </p>
+            )}
+            {tally.failed > 0 && (
+              <div className="mt-3 rounded-xl bg-rose-50 p-3 text-left text-xs text-rose-700">
+                <p className="font-semibold">The server reported:</p>
+                <p className="mt-1">{tally.reason}</p>
+              </div>
+            )}
+
+            <button onClick={onClose} className="btn-primary mt-5 w-full py-3">Done</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const data = useData();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -333,6 +540,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
   const [provisioned, setProvisioned] = useState(0);
+  const [failReason, setFailReason] = useState("");
   const [duplicates, setDuplicates] = useState(0);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -369,6 +577,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
     const usedNumbers = new Set(data.students.map((s) => s.admissionNo));
     let created = 0;   // parent logins provisioned
     let duplicates = 0; // rejected as duplicate (server 409 or seen in batch)
+    let firstFailure = ""; // the server's own words for the first failed row
     const today = new Date().toISOString().slice(0, 10);
     for (const row of validRows) {
       if (usedNumbers.has(row.admissionNo)) { duplicates++; continue; }
@@ -397,8 +606,14 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
           });
           if (res.status === 409) { duplicates++; continue; }
           if (res.ok) created++;
-        } catch {
-          /* provisioning failed for a non-duplicate reason; still save locally */
+          // Keep the first real reason: every row usually fails the same way,
+          // so one accurate sentence beats a guess about Admin SDK env vars.
+          else if (!firstFailure) {
+            const detail = await res.json().catch(() => ({}));
+            firstFailure = detail?.detail || detail?.error || `The server replied ${res.status}.`;
+          }
+        } catch (e) {
+          if (!firstFailure) firstFailure = e instanceof Error ? e.message : "The request failed.";
         }
       }
 
@@ -408,6 +623,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
     }
 
     setProvisioned(created);
+    setFailReason(firstFailure);
     setDuplicates(duplicates);
     setImporting(false);
     setDone(true);
@@ -435,8 +651,16 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
               {provisioned} parent login{provisioned !== 1 ? "s" : ""} provisioned
               {" "}(login = admission number, password = <span className="font-mono">{DEFAULT_PASSWORD}</span>).
               {provisioned < validRows.length - duplicates && (
-                <span className="mt-1 block text-amber-600">
-                  {validRows.length - duplicates - provisioned} could not be provisioned — check the server&apos;s Firebase Admin setup.
+                <span className="mt-2 block rounded-lg bg-amber-50 p-2 text-left text-amber-700">
+                  <span className="font-semibold">
+                    {validRows.length - duplicates - provisioned} login
+                    {validRows.length - duplicates - provisioned !== 1 ? "s" : ""} could not be created.
+                  </span>
+                  <span className="mt-1 block">{failReason || "The server did not say why."}</span>
+                  <span className="mt-1 block">
+                    The students were saved. Use <span className="font-semibold">Fix parent logins</span> on
+                    the Students page to retry once the cause is resolved.
+                  </span>
                 </span>
               )}
             </p>
@@ -724,7 +948,11 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState("");
   const [created, setCreated] = useState<null | {
     admissionNo: string; pin: string; email: string; provision: "demo" | "created" | "failed";
+    /** The server's reason, when provisioning failed. */
+    reason?: string;
+    studentId?: string;
   }>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const dupAdmission = data.students.some((s) => s.admissionNo === form.admissionNo);
   const admissionReady = /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
@@ -750,6 +978,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
 
     const email = admissionNoToEmail(form.admissionNo);
     let provision: "demo" | "created" | "failed" = "demo";
+    let reason: string | undefined;
 
     // In Firebase mode the server is the authority — check it FIRST so a
     // duplicate is rejected before anything is written locally.
@@ -767,8 +996,15 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
           return;
         }
         provision = res.ok ? "created" : "failed";
-      } catch {
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({}));
+          // Report what actually went wrong: a 403 is an authorisation
+          // problem, not the missing env vars this used to blame.
+          reason = detail?.detail || detail?.error || `The server replied ${res.status}.`;
+        }
+      } catch (e) {
         provision = "failed";
+        reason = e instanceof Error ? e.message : "The request to the server failed.";
       }
     }
 
@@ -776,7 +1012,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     data.addStudent(withoutId);
 
     setBusy(false);
-    setCreated({ admissionNo: form.admissionNo, pin, email, provision });
+    setCreated({ admissionNo: form.admissionNo, pin, email, provision, reason, studentId });
   };
 
   const valid = form.firstName && /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
@@ -788,9 +1024,18 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
         <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-soft">
           <button onClick={onClose} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
           <div className="text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></div>
+            <div className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${
+              created.provision === "failed" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
+              {created.provision === "failed" ? <AlertTriangle className="h-7 w-7" /> : <CheckCircle2 className="h-7 w-7" />}
+            </div>
             <h3 className="text-lg font-bold text-slate-900">Student added</h3>
-            <p className="mt-1 text-sm text-slate-500">Parent login has been generated.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {created.provision === "created"
+                ? "Parent login has been generated."
+                : created.provision === "failed"
+                  ? "The parent login still needs to be created."
+                  : "Parent login will be generated once Firebase is connected."}
+            </p>
           </div>
           <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <CredRow icon={<KeyRound className="h-4 w-4" />} label="Admission no. (login)" value={created.admissionNo} />
@@ -802,11 +1047,54 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
             : created.provision === "failed" ? "bg-rose-50 text-rose-700"
             : "bg-amber-50 text-amber-700"}`}>
             {created.provision === "created" && "✓ Firebase Auth account created — the parent can sign in now."}
-            {created.provision === "failed" && "Saved locally, but the Firebase account could not be created. Check Admin SDK env vars."}
+            {created.provision === "failed" && (
+              <>
+                <p className="font-semibold">
+                  The student was saved, but the parent can&apos;t sign in yet.
+                </p>
+                {/* The server's own words — the old text blamed env vars for
+                    every failure, including authorisation ones. */}
+                <p className="mt-1">{created.reason ?? "The server did not say why."}</p>
+              </>
+            )}
             {created.provision === "demo" && "Connect Firebase to auto-create the parent Auth account on the server."}
           </div>
+
+          {created.provision === "failed" && (
+            <button
+              onClick={async () => {
+                setRetrying(true);
+                const res = await callAdminJson("/api/students/manage", {
+                  action: "create-login",
+                  studentId: created.studentId,
+                  admissionNo: created.admissionNo,
+                  pin: created.pin,
+                });
+                setRetrying(false);
+                if (res.ok) {
+                  setCreated({ ...created, provision: "created", reason: undefined });
+                  toast.success(
+                    res.data?.existed
+                      ? "The parent login already existed — it's now linked."
+                      : "Parent login created.",
+                  );
+                } else {
+                  setCreated({
+                    ...created,
+                    reason: res.data?.detail || res.data?.error || "Still failing — see the server logs.",
+                  });
+                }
+              }}
+              disabled={retrying}
+              className="btn-primary mt-3 w-full py-2.5"
+            >
+              {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              Retry creating the parent login
+            </button>
+          )}
+
           <p className="mt-3 text-xs text-slate-400">Share the admission number and password with the parent. They can change the password after first sign-in.</p>
-          <button onClick={onClose} className="btn-primary mt-4 w-full py-3">Done</button>
+          <button onClick={onClose} className="btn-ghost mt-3 w-full py-3">Done</button>
         </div>
       </div>
     );

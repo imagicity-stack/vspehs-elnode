@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 
   // 5) Role claim + Firestore documents.
   await adminAuth.setCustomUserClaims(uid, { role: "parent", studentId: student.id });
-  await db.collection("students").doc(student.id).set(student, { merge: true });
+  await db.collection("students").doc(student.id).set({ ...student, parentAuthUid: uid }, { merge: true });
   await db.collection("appUsers").doc(uid).set(
     {
       role: "parent",
