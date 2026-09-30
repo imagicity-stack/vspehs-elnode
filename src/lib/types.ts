@@ -64,6 +64,12 @@ export interface Student {
   admissionDate: string;
   transportRoute?: string;
   status: "active" | "inactive";
+  /**
+   * Firebase Auth uid of the parent login, written server-side once it exists.
+   * Absent on records created before this was tracked, so treat a missing
+   * value as "unknown", not as "no login" — ask the server to be sure.
+   */
+  parentAuthUid?: string;
 }
 
 /**
