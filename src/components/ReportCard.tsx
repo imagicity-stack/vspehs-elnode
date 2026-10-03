@@ -1,7 +1,7 @@
 "use client";
 
 import { Student, Exam, ExamResult, SchoolClass, Grade } from "@/lib/types";
-import { fullName, ageFromDob, formatDate } from "@/lib/utils";
+import { fullName, ageFromDob, formatDate, rollLabel } from "@/lib/utils";
 import { SCHOOL_LOCATION, SCHOOL_NAME } from "@/lib/branding";
 import { SchoolCrest } from "@/components/ui";
 import { Star } from "lucide-react";
@@ -48,7 +48,7 @@ export function ReportCard({
       <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
         <Info label="Student" value={fullName(student)} />
         <Info label="Class" value={cls?.name ?? "—"} />
-        <Info label="Roll No" value={`#${student.rollNo}`} />
+        <Info label="Roll No" value={rollLabel(student.rollNo)} />
         <Info label="Admission" value={student.admissionNo} />
         <Info label="Date of Birth" value={formatDate(student.dob)} />
         <Info label="Age" value={ageFromDob(student.dob)} />

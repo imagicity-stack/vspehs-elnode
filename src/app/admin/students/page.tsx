@@ -7,7 +7,7 @@ import { auth, isFirebaseConfigured, admissionNoToEmail, DEFAULT_PASSWORD } from
 import { toast } from "@/components/Toast";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { Card, Badge, Avatar, Table, Th, Td, Stat, EmptyState, Loading } from "@/components/ui";
-import { fullName, ageFromDob } from "@/lib/utils";
+import { fullName, ageFromDob, nextRollNo, rollNoClash, rollLabel } from "@/lib/utils";
 import { BloodGroup, Student } from "@/lib/types";
 import {
   Users, Plus, Search, X, Droplet, AlertTriangle, KeyRound, CheckCircle2,
@@ -46,14 +46,15 @@ async function callAdmin(path: string, payload: unknown): Promise<boolean> {
 type ClassRef = { id: string; name: string; level: string; section: string };
 
 const CSV_HEADERS = [
-  "firstName", "lastName", "admissionNo", "gender",
+  "firstName", "lastName", "admissionNo", "rollNo", "gender",
   "dob", "bloodGroup", "class", "section",
   "fatherName", "motherName", "primaryContact", "allergies",
 ];
 
 function downloadTemplate(sample?: { level: string; section: string }) {
   const example = [
-    "Aarav", "Mehta", "2025001", "male",
+    // rollNo may be left blank — the next free number in the class is used.
+    "Aarav", "Mehta", "2025001", "1", "male",
     "2022-04-18", "B+", sample?.level || "Nursery", sample?.section || "A",
     "Rohit Mehta", "Sneha Mehta", "+91 98765 40001", "Peanuts",
   ];
@@ -71,6 +72,8 @@ interface ParsedRow {
   firstName: string; lastName: string; admissionNo: string;
   gender: Student["gender"]; dob: string; bloodGroup: BloodGroup;
   className: string; section: string; classId: string;
+  /** 0 when the column was blank — the importer picks the next free number. */
+  rollNo: number;
   fatherName: string; motherName: string;
   primaryContact: string; allergies: string[];
   _error?: string;
@@ -91,7 +94,7 @@ function parseCSV(text: string, existing: Set<string>, classes: ClassRef[]): Par
     const fail = (msg: string): ParsedRow => ({
       firstName: "", lastName: "", admissionNo: admNo, gender: "male" as const,
       dob: "", bloodGroup: "Unknown" as BloodGroup, className: classRaw, section: sectionRaw,
-      classId: "", fatherName: "", motherName: "", primaryContact: "", allergies: [],
+      classId: "", rollNo: 0, fatherName: "", motherName: "", primaryContact: "", allergies: [],
       _error: `Row ${i + 2}: ${msg}`,
     });
     if (!/^\d{7}$/.test(admNo)) return fail(`Invalid 7-digit admission number "${admNo}"`);
@@ -127,6 +130,7 @@ function parseCSV(text: string, existing: Set<string>, classes: ClassRef[]): Par
       dob: get("dob") || "2022-01-01",
       bloodGroup: (get("bloodgroup") as BloodGroup) || "Unknown",
       className: match.level, section: match.section, classId: match.id,
+      rollNo: Math.max(0, Math.trunc(Number(get("rollno")) || 0)),
       fatherName: get("fathername"), motherName: get("mothername"),
       primaryContact: get("primarycontact"),
       allergies: get("allergies") ? get("allergies").split(";").map((a) => a.trim()).filter(Boolean) : [],
@@ -153,7 +157,8 @@ export default function AdminStudents() {
       (s) =>
         !q ||
         fullName(s).toLowerCase().includes(q.toLowerCase()) ||
-        s.admissionNo.includes(q),
+        s.admissionNo.includes(q) ||
+        String(s.rollNo ?? "") === q.trim(),
     )
     .sort((a, b) => fullName(a).localeCompare(fullName(b)));
 
@@ -267,7 +272,7 @@ export default function AdminStudents() {
           <Table>
             <thead>
               <tr className="border-b border-slate-100">
-                <Th>Student</Th><Th>Admission</Th><Th>Class</Th><Th>Age</Th>
+                <Th>Student</Th><Th>Admission</Th><Th>Roll</Th><Th>Class</Th><Th>Age</Th>
                 <Th>Blood</Th><Th>Allergies</Th><Th>Contact</Th><Th>Status</Th><Th></Th>
               </tr>
             </thead>
@@ -283,6 +288,7 @@ export default function AdminStudents() {
                       </div>
                     </Td>
                     <Td className="text-slate-500">{s.admissionNo}</Td>
+                    <Td className="font-semibold text-slate-700">{rollLabel(s.rollNo)}</Td>
                     <Td>{cls?.name ?? <span className="text-slate-300">—</span>}</Td>
                     <Td>{ageFromDob(s.dob)}</Td>
                     <Td><Badge tone="slate"><Droplet className="h-3.5 w-3.5" /> {s.bloodGroup}</Badge></Td>
@@ -541,6 +547,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState(false);
   const [provisioned, setProvisioned] = useState(0);
   const [failReason, setFailReason] = useState("");
+  const [reassigned, setReassigned] = useState(0);
   const [duplicates, setDuplicates] = useState(0);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -558,12 +565,21 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
   const importAll = async () => {
     setImporting(true);
 
-    // Roll numbers continue from the highest existing one per class so a batch
-    // doesn't hand out duplicates (state doesn't update mid-loop).
-    const rollTally: Record<string, number> = {};
-    data.students.forEach((s) => {
-      rollTally[s.classId] = Math.max(rollTally[s.classId] ?? 0, s.rollNo);
-    });
+    // Roll numbers the file asked for are honoured; the rest get the next free
+    // number in their class. Taken numbers are tracked here because state does
+    // not update mid-loop, so a batch cannot hand out the same one twice.
+    const takenRolls: Record<string, Set<number>> = {};
+    const claim = (classId: string, n: number) => {
+      (takenRolls[classId] ??= new Set()).add(n);
+      return n;
+    };
+    data.students.forEach((s) => { if (s.rollNo) claim(s.classId, s.rollNo); });
+    const nextFreeRoll = (classId: string) => {
+      const taken = takenRolls[classId] ??= new Set();
+      let n = 1;
+      while (taken.has(n)) n++;
+      return claim(classId, n);
+    };
 
     // When Firebase is live, provision each parent login + Firestore docs via
     // the same protected route the single "Add Student" flow uses.
@@ -578,15 +594,21 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
     let created = 0;   // parent logins provisioned
     let duplicates = 0; // rejected as duplicate (server 409 or seen in batch)
     let firstFailure = ""; // the server's own words for the first failed row
+    let rollsReassigned = 0; // rows whose requested roll number was already taken
     const today = new Date().toISOString().slice(0, 10);
     for (const row of validRows) {
       if (usedNumbers.has(row.admissionNo)) { duplicates++; continue; }
-      rollTally[row.classId] = (rollTally[row.classId] ?? 0) + 1;
+      // A number the file asked for is kept unless the class already has it.
+      const wanted = row.rollNo;
+      const rollNo = wanted && !takenRolls[row.classId]?.has(wanted)
+        ? claim(row.classId, wanted)
+        : nextFreeRoll(row.classId);
+      if (wanted && wanted !== rollNo) rollsReassigned++;
       const student: Student = {
         id: `st-${row.admissionNo}`,
         admissionNo: row.admissionNo, firstName: row.firstName, lastName: row.lastName,
         gender: row.gender, dob: row.dob, bloodGroup: row.bloodGroup,
-        classId: row.classId, rollNo: rollTally[row.classId],
+        classId: row.classId, rollNo,
         allergies: row.allergies,
         emergencyContacts: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact }],
         pickupPersons: [{ name: row.fatherName || "Parent", relation: "Father", phone: row.primaryContact, authorised: true }],
@@ -623,6 +645,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
     }
 
     setProvisioned(created);
+    setReassigned(rollsReassigned);
     setFailReason(firstFailure);
     setDuplicates(duplicates);
     setImporting(false);
@@ -643,6 +666,12 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
             {duplicates > 0 && (
               <span className="mt-1 block text-amber-600">
                 {duplicates} skipped — admission number already exists.
+              </span>
+            )}
+            {reassigned > 0 && (
+              <span className="mt-1 block text-amber-600">
+                {reassigned} roll number{reassigned !== 1 ? "s were" : " was"} already taken in that class —
+                the next free number was used instead.
               </span>
             )}
           </p>
@@ -751,7 +780,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                 <table className="min-w-full text-xs">
                   <thead className="bg-slate-50">
                     <tr>
-                      {["Name", "Admission No", "Class", "Section", "Gender", "DOB", "Blood Group"].map((h) => (
+                      {["Name", "Admission No", "Roll", "Class", "Section", "Gender", "DOB", "Blood Group"].map((h) => (
                         <th key={h} className="px-3 py-2 text-left font-semibold text-slate-500">{h}</th>
                       ))}
                     </tr>
@@ -761,6 +790,7 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
                       <tr key={i} className="hover:bg-slate-50">
                         <td className="px-3 py-2 font-medium text-slate-800">{r.firstName} {r.lastName}</td>
                         <td className="px-3 py-2 font-mono text-slate-600">{r.admissionNo}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.rollNo || <span className="text-slate-300">auto</span>}</td>
                         <td className="px-3 py-2 text-slate-600">{r.className}</td>
                         <td className="px-3 py-2 text-slate-600">{r.section}</td>
                         <td className="px-3 py-2 capitalize text-slate-600">{r.gender}</td>
@@ -796,6 +826,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
     dob: student.dob,
     bloodGroup: student.bloodGroup,
     classId: student.classId,
+    rollNo: String(student.rollNo ?? ""),
     fatherName: student.fatherName,
     motherName: student.motherName,
     primaryContact: student.primaryContact,
@@ -809,8 +840,12 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
   const [busy, setBusy] = useState(false);
   const [photo, setPhoto] = useState<string | undefined>(student.photoUrl);
 
+  const editRoll = Number(form.rollNo) || 0;
+  const movedClass = form.classId !== student.classId;
+  const rollTaken = rollNoClash(data.students, form.classId, editRoll, student.id);
+
   const save = () => {
-    if (!form.firstName) return;
+    if (!form.firstName || rollTaken || editRoll < 1) return;
     setBusy(true);
     data.updateStudent(student.id, {
       firstName: form.firstName.trim(),
@@ -819,6 +854,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
       dob: form.dob,
       bloodGroup: form.bloodGroup as BloodGroup,
       classId: form.classId,
+      rollNo: editRoll,
       fatherName: form.fatherName.trim(),
       motherName: form.motherName.trim(),
       primaryContact: form.primaryContact.trim(),
@@ -862,6 +898,24 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
             <select value={form.classId} onChange={(e) => set("classId", e.target.value)} className="input">
               {data.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          </Field>
+          <Field label="Roll number">
+            <input
+              type="number" min={1} value={form.rollNo}
+              onChange={(e) => set("rollNo", e.target.value)}
+              className="input"
+            />
+            {rollTaken ? (
+              <p className="mt-1 text-xs text-rose-600">
+                Roll {editRoll} is already {fullName(rollTaken)}&apos;s in this class.
+              </p>
+            ) : editRoll < 1 ? (
+              <p className="mt-1 text-xs text-rose-600">Enter a roll number of 1 or more.</p>
+            ) : movedClass ? (
+              <p className="mt-1 text-xs text-amber-600">
+                Moving class — {nextRollNo(data.students, form.classId, student.id)} is free in {data.classes.find((c) => c.id === form.classId)?.name ?? "the new class"}.
+              </p>
+            ) : null}
           </Field>
           <Field label="Status">
             <select value={form.status} onChange={(e) => set("status", e.target.value)} className="input">
@@ -925,7 +979,7 @@ function EditStudentModal({ student, onClose }: { student: Student; onClose: () 
 
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1 py-2.5">Cancel</button>
-          <button onClick={save} disabled={!form.firstName || busy} className="btn-primary flex-1 py-2.5">
+          <button onClick={save} disabled={!form.firstName || !!rollTaken || editRoll < 1 || busy} className="btn-primary flex-1 py-2.5">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
           </button>
         </div>
@@ -940,7 +994,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({
     firstName: "", lastName: "", admissionNo: "", gender: "male" as Student["gender"],
     dob: "", bloodGroup: "Unknown" as BloodGroup, classId: data.classes[0]?.id ?? "",
-    fatherName: "", motherName: "", primaryContact: "", allergies: "",
+    rollNo: "", fatherName: "", motherName: "", primaryContact: "", allergies: "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [busy, setBusy] = useState(false);
@@ -957,11 +1011,17 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
   const dupAdmission = data.students.some((s) => s.admissionNo === form.admissionNo);
   const admissionReady = /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
 
+  // The next free number in the chosen class, re-suggested whenever the class
+  // changes — until the office types one, at which point theirs is kept.
+  const suggestedRoll = nextRollNo(data.students, form.classId);
+  const [rollTouched, setRollTouched] = useState(false);
+  const rollNo = rollTouched ? Number(form.rollNo) || 0 : suggestedRoll;
+  const rollTaken = rollNoClash(data.students, form.classId, rollNo);
+
   const save = async () => {
-    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission) return;
+    if (!form.firstName || !/^\d{7}$/.test(form.admissionNo) || dupAdmission || rollTaken || rollNo < 1) return;
     setBusy(true);
     setErr("");
-    const rollNo = data.students.filter((s) => s.classId === form.classId).length + 1;
     const pin = DEFAULT_PASSWORD;
     const studentId = `st-${form.admissionNo}`;
     const student: Omit<Student, "id"> & { id: string } = {
@@ -1015,7 +1075,7 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
     setCreated({ admissionNo: form.admissionNo, pin, email, provision, reason, studentId });
   };
 
-  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo) && !dupAdmission;
+  const valid = form.firstName && /^\d{7}$/.test(form.admissionNo) && !dupAdmission && !rollTaken && rollNo >= 1;
 
   if (created) {
     return (
@@ -1138,6 +1198,24 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
               {data.classes.length === 0 && <option value="">— No classes —</option>}
               {data.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          </Field>
+          <Field label="Roll number">
+            <input
+              type="number" min={1} value={rollTouched ? form.rollNo : suggestedRoll}
+              onChange={(e) => { setRollTouched(true); set("rollNo", e.target.value); }}
+              className="input"
+            />
+            {rollTaken ? (
+              <p className="mt-1 text-xs text-rose-600">
+                Roll {rollNo} is already {fullName(rollTaken)}&apos;s in this class.
+              </p>
+            ) : rollNo < 1 ? (
+              <p className="mt-1 text-xs text-rose-600">Enter a roll number of 1 or more.</p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-400">
+                {rollTouched ? "Unique within the class." : `Next free number in this class — change it if the office uses another.`}
+              </p>
+            )}
           </Field>
           <Field label="Gender">
             <select value={form.gender} onChange={(e) => set("gender", e.target.value)} className="input capitalize">

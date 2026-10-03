@@ -2,7 +2,7 @@
 
 import { Student } from "@/lib/types";
 import { SCHOOL_WEBSITE } from "@/lib/branding";
-import { formatDate } from "@/lib/utils";
+import { formatDate, rollLabel } from "@/lib/utils";
 import {
   YELLOW, NAVY, INK, CARD, CARD_HEIGHT,
   Logo, Qr, Squiggles, BottomArt, Basketball, GradCap, Dino, Books, Trophy, Star, Row,
@@ -55,6 +55,7 @@ export function IdCard({ student, className }: { student: Student; className: st
           <p className="relative z-10 mt-3 text-center text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: `${INK}aa` }}>Student Details</p>
 
           <div className="relative z-10 mt-3 space-y-2">
+            <Row label="Roll Number" value={rollLabel(student.rollNo)} />
             <Row label="Father's Name" value={student.fatherName} />
             <Row label="Mother's Name" value={student.motherName} />
             <Row label="Mobile Number" value={student.primaryContact} />

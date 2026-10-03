@@ -7,7 +7,7 @@ import { useData } from "@/lib/store";
 import { IdCard } from "@/components/IdCard";
 import { StaffIdCard, designationOf } from "@/components/StaffIdCard";
 import { Card, EmptyState, Loading } from "@/components/ui";
-import { fullName } from "@/lib/utils";
+import { fullName, rollLabel } from "@/lib/utils";
 import { StaffRole } from "@/lib/types";
 import { CreditCard, Search, Printer, CheckSquare, Square, Users, GraduationCap } from "lucide-react";
 
@@ -91,7 +91,10 @@ function IdCardsInner() {
   const stamp = showValidity ? validTill : undefined;
   const rows: { id: string; title: string; subtitle: string }[] = isStaffMode
     ? filteredStaff.map((s) => ({ id: s.id, title: s.name, subtitle: `${s.staffCode} · ${designationOf(s)}` }))
-    : filtered.map((s) => ({ id: s.id, title: fullName(s), subtitle: `${s.admissionNo} · ${classNameOf(s.classId)}` }));
+    : filtered.map((s) => ({
+      id: s.id, title: fullName(s),
+      subtitle: `${s.admissionNo} · ${classNameOf(s.classId)} · Roll ${rollLabel(s.rollNo)}`,
+    }));
   const selectedIds = isStaffMode ? staffSelected : selected;
   const listEmpty = isStaffMode ? data.staff.length === 0 : data.students.length === 0;
 

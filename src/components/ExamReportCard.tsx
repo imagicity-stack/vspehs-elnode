@@ -12,7 +12,7 @@ import { StudentExamResult } from "@/lib/types";
 import {
   BRAND_MAROON, SCHOOL_LOCATION, SCHOOL_NAME, SCHOOL_TAGLINE, SCHOOL_WEBSITE,
 } from "@/lib/branding";
-import { formatDate } from "@/lib/utils";
+import { formatDate, rollLabel } from "@/lib/utils";
 import { MARK_STATUS_META } from "@/lib/exams";
 import { SchoolCrest } from "@/components/ui";
 import { ShieldCheck } from "lucide-react";
@@ -54,7 +54,7 @@ export function ExamReportCard({ result }: { result: StudentExamResult }) {
         <div className="grid flex-1 grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
           <Info label="Student" value={r.studentName} />
           <Info label="Class" value={r.className} />
-          <Info label="Roll No" value={`#${r.rollNo}`} />
+          <Info label="Roll No" value={rollLabel(r.rollNo)} />
           <Info label="Admission No" value={r.admissionNo} />
           <Info label="Father's Name" value={r.fatherName || "—"} />
           <Info label="Mother's Name" value={r.motherName || "—"} />
