@@ -111,3 +111,34 @@ export const gradientFor = (key: string) => {
   for (let i = 0; i < key.length; i++) h = key.charCodeAt(i) + ((h << 5) - h);
   return palettes[Math.abs(h) % palettes.length];
 };
+
+// ── Roll numbers ──────────────────────────────────────────────
+// A roll number is the number a child is known by inside their class, so it is
+// unique per class and not across the school. It is set by the office, not
+// derived, because schools renumber a class alphabetically at the start of a
+// session and expect the numbers to stay put afterwards.
+
+type RollBearer = { id: string; classId: string; rollNo?: number };
+
+/** The lowest roll number not yet used in a class — never reusing a live one. */
+export function nextRollNo(students: RollBearer[], classId: string, exceptId?: string): number {
+  const taken = new Set(
+    students
+      .filter((s) => s.classId === classId && s.id !== exceptId && s.rollNo)
+      .map((s) => s.rollNo as number),
+  );
+  let n = 1;
+  while (taken.has(n)) n++;
+  return n;
+}
+
+/** Who else in the class already holds this roll number. */
+export function rollNoClash<T extends RollBearer>(
+  students: T[], classId: string, rollNo: number, exceptId?: string,
+): T | undefined {
+  if (!rollNo) return undefined;
+  return students.find((s) => s.classId === classId && s.id !== exceptId && s.rollNo === rollNo);
+}
+
+/** A roll number for display: "—" until the office has assigned one. */
+export const rollLabel = (rollNo?: number) => (rollNo ? String(rollNo) : "—");

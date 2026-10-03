@@ -13,6 +13,7 @@
 
 import type { StudentExamResult } from "./types";
 import { MARK_STATUS_META } from "./exams";
+import { rollLabel } from "./utils";
 import {
   SCHOOL_CREST, SCHOOL_LOCATION, SCHOOL_NAME, SCHOOL_TAGLINE, SCHOOL_WEBSITE,
   BRAND_MAROON_RGB, BRAND_GOLD_RGB,
@@ -289,7 +290,7 @@ export async function downloadReportCards(
     };
     field(0, 0, "Student Name", r.studentName);
     field(1, 0, "Class", r.className);
-    field(2, 0, "Roll No", String(r.rollNo));
+    field(2, 0, "Roll No", rollLabel(r.rollNo));
     field(0, 1, "Admission No", r.admissionNo);
     field(1, 1, "Father's Name", r.fatherName);
     field(2, 1, "Mother's Name", r.motherName);

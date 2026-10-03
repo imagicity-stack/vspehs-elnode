@@ -240,6 +240,7 @@ export function MarksSheet({
                         <input
                           type="number"
                           min={0}
+                          step="any"
                           max={exam.maxMarks}
                           value={e.marks ?? ""}
                           disabled={locked}

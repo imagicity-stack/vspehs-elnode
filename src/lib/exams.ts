@@ -69,12 +69,42 @@ export const GROUP_FLOW: ExamGroup["status"][] = [
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** The band a percentage falls into. Bands are inclusive at both ends. */
+/**
+ * The band a percentage falls into.
+ *
+ * Scales are written in whole numbers — 91–100, 81–90, 71–80 — but a
+ * percentage almost never is: 35 out of 38 is 92.11%, and a half mark puts a
+ * child on 90.5%. Read literally, those bands leave every fraction between 90
+ * and 91 ungraded, and the report card printed a blank where the grade should
+ * be. So a band is treated as running from its minimum up to the next band's
+ * minimum: 90.5% is graded by the 81–90 band, the one the child has actually
+ * reached, and a mark can never fall through the scale.
+ */
 export function bandFor(percent: number, bands: GradeBand[]): GradeBand | undefined {
   const p = round2(percent);
-  return [...bands]
-    .sort((a, b) => b.minPercent - a.minPercent)
-    .find((b) => p >= b.minPercent && p <= b.maxPercent);
+  const desc = [...bands].sort((a, b) => b.minPercent - a.minPercent);
+  // A band that genuinely contains the mark wins, so a deliberately narrow
+  // band inside a scale still behaves exactly as written.
+  return desc.find((b) => p >= b.minPercent && p <= b.maxPercent)
+    // Otherwise the highest band the mark reaches. This also catches a
+    // percentage above the top band, which bonus marks can produce.
+    ?? desc.find((b) => p >= b.minPercent);
+}
+
+/** The range `bandFor` actually applies, for display next to the written one. */
+export function effectiveBandRange(band: GradeBand, bands: GradeBand[]) {
+  const above = bands
+    .filter((b) => b.minPercent > band.minPercent)
+    .sort((a, b) => a.minPercent - b.minPercent)[0];
+  return above
+    ? { from: band.minPercent, to: above.minPercent, inclusive: false }
+    : { from: band.minPercent, to: Math.max(band.maxPercent, 100), inclusive: true };
+}
+
+/** That range written out — "81–90.99%" — so the editor shows what really happens. */
+export function bandRangeLabel(band: GradeBand, bands: GradeBand[]): string {
+  const r = effectiveBandRange(band, bands);
+  return r.inclusive ? `${r.from}–${r.to}%` : `${r.from}–${round2(r.to - 0.01)}%`;
 }
 
 /**
@@ -94,13 +124,12 @@ export function validateBands(bands: GradeBand[]): string[] {
     if (next.minPercent <= b.maxPercent) {
       issues.push(`"${b.grade}" and "${next.grade}" overlap at ${next.minPercent}%.`);
     } else if (next.minPercent > b.maxPercent + 1) {
+      // Only a gap wide enough to swallow whole marks is an error; the
+      // fraction between 90 and 91 is covered by the band below.
       issues.push(`Nothing covers ${b.maxPercent}–${next.minPercent}%.`);
     }
   });
   if (sorted.length && sorted[0].minPercent > 0) issues.push(`Nothing covers 0–${sorted[0].minPercent}%.`);
-  if (sorted.length && sorted[sorted.length - 1].maxPercent < 100) {
-    issues.push(`Nothing covers ${sorted[sorted.length - 1].maxPercent}–100%.`);
-  }
   return issues;
 }
 

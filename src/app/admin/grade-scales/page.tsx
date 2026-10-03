@@ -15,7 +15,7 @@ import { useData, type AuditActor } from "@/lib/store";
 import { toast } from "@/components/Toast";
 import { Card, CardHeader, Badge, Stat, EmptyState, Loading } from "@/components/ui";
 import { GradeBand, GradeScale } from "@/lib/types";
-import { validateBands } from "@/lib/exams";
+import { validateBands, bandRangeLabel } from "@/lib/exams";
 import {
   Award, Plus, X, Trash2, Edit2, CheckCircle2, AlertTriangle, Copy, Loader2, Sparkles,
 } from "lucide-react";
@@ -173,7 +173,9 @@ export default function AdminGradeScales() {
                       <span className="w-11 shrink-0 rounded-lg bg-brand-50 py-1 text-center text-sm font-bold text-brand-700">
                         {b.grade || "—"}
                       </span>
-                      <span className="w-24 shrink-0 text-sm text-slate-600">{b.minPercent}–{b.maxPercent}%</span>
+                      <span className="w-24 shrink-0 text-sm text-slate-600" title={`Covers ${bandRangeLabel(b, scale.bands)}`}>
+                        {b.minPercent}–{b.maxPercent}%
+                      </span>
                       {b.gradePoint !== undefined && (
                         <span className="w-14 shrink-0 text-xs text-slate-400">GP {b.gradePoint}</span>
                       )}
@@ -242,7 +244,10 @@ function GradeScaleModal({
         <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h3 className="font-bold text-slate-900">{scale.name ? "Edit grade scale" : "New grade scale"}</h3>
-            <p className="text-sm text-slate-500">Bands are inclusive and must cover 0–100% without overlapping.</p>
+            <p className="text-sm text-slate-500">
+              Bands must cover 0–100% without overlapping. Write them in whole numbers — each one
+              stretches to just under the next, so a mark of 90.5% is still graded.
+            </p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
@@ -272,12 +277,14 @@ function GradeScaleModal({
               <button onClick={addBand} className="btn-ghost px-2.5 py-1 text-xs"><Plus className="h-3.5 w-3.5" /> Add band</button>
             </div>
             <div className="overflow-hidden rounded-xl border border-slate-200">
-              <div className="grid grid-cols-[60px_60px_70px_60px_1fr_32px] gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                <span>Min %</span><span>Max %</span><span>Grade</span><span>Point</span><span>Remark</span><span />
+              <div className="grid grid-cols-[60px_60px_84px_70px_60px_1fr_32px] gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <span>Min %</span><span>Max %</span>
+                <span title="The range this band really covers, including fractions">Applies to</span>
+                <span>Grade</span><span>Point</span><span>Remark</span><span />
               </div>
               <div className="divide-y divide-slate-50">
                 {bands.map((b, i) => (
-                  <div key={i} className="grid grid-cols-[60px_60px_70px_60px_1fr_32px] items-center gap-2 px-3 py-2">
+                  <div key={i} className="grid grid-cols-[60px_60px_84px_70px_60px_1fr_32px] items-center gap-2 px-3 py-2">
                     <input
                       type="number" min={0} max={100} value={b.minPercent}
                       onChange={(e) => setBand(i, { minPercent: Number(e.target.value) })}
@@ -288,6 +295,13 @@ function GradeScaleModal({
                       onChange={(e) => setBand(i, { maxPercent: Number(e.target.value) })}
                       className="input px-2 py-1 text-sm"
                     />
+                    {/* Marks are rarely whole percentages — 69 out of 76 is
+                        90.79% — so a band quietly stretches to just below the
+                        next one. Showing that here means nobody has to find out
+                        from a blank grade on a report card. */}
+                    <span className="truncate text-xs font-medium text-slate-500" title="The range this band really covers">
+                      {bandRangeLabel(b, bands)}
+                    </span>
                     <input
                       value={b.grade} onChange={(e) => setBand(i, { grade: e.target.value })}
                       placeholder="A1" className="input px-2 py-1 text-sm font-semibold"
